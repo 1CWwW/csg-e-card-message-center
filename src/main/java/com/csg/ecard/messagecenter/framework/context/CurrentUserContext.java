@@ -3,15 +3,11 @@ package com.csg.ecard.messagecenter.framework.context;
 /**
  * 当前用户上下文占位能力。
  * <p>
- * 通过 ThreadLocal 保存一次请求内的用户信息，供审计字段填充等基础能力读取。
- * 当前项目未实现认证系统，后续接入认证后可在过滤器或拦截器中写入真实用户信息。
+ * 当前阶段不实现登录认证，仅通过 ThreadLocal 保存一次请求内的用户和请求信息。
+ * 请求结束后必须调用 {@link #clear()}，避免容器线程复用时发生上下文残留。
  */
 public final class CurrentUserContext {
 
-    /**
-     * 使用 ThreadLocal 隔离不同请求线程的用户信息。
-     * 请求结束必须调用 {@link #clear()}，避免线程池复用时发生上下文残留。
-     */
     private static final ThreadLocal<UserInfo> HOLDER = new ThreadLocal<>();
 
     private CurrentUserContext() {
@@ -29,10 +25,40 @@ public final class CurrentUserContext {
     /**
      * 获取当前线程用户信息。
      *
-     * @return 用户信息；未设置时返回 null
+     * @return 用户信息，未设置时返回 null
      */
     public static UserInfo get() {
         return HOLDER.get();
+    }
+
+    public static String getUserId() {
+        UserInfo userInfo = HOLDER.get();
+        return userInfo == null ? null : userInfo.userId();
+    }
+
+    public static String getUserName() {
+        UserInfo userInfo = HOLDER.get();
+        return userInfo == null ? null : userInfo.userName();
+    }
+
+    public static String getOrgId() {
+        UserInfo userInfo = HOLDER.get();
+        return userInfo == null ? null : userInfo.orgId();
+    }
+
+    public static String getOrgName() {
+        UserInfo userInfo = HOLDER.get();
+        return userInfo == null ? null : userInfo.orgName();
+    }
+
+    public static String getRequestIp() {
+        UserInfo userInfo = HOLDER.get();
+        return userInfo == null ? null : userInfo.requestIp();
+    }
+
+    public static String getRequestUri() {
+        UserInfo userInfo = HOLDER.get();
+        return userInfo == null ? null : userInfo.requestUri();
     }
 
     /**
@@ -42,26 +68,76 @@ public final class CurrentUserContext {
      * @return 当前用户 ID 或默认用户 ID
      */
     public static String getUserIdOrDefault(String defaultUserId) {
-        UserInfo userInfo = HOLDER.get();
-        return userInfo == null || userInfo.userId() == null ? defaultUserId : userInfo.userId();
+        String userId = getUserId();
+        return userId == null ? defaultUserId : userId;
     }
 
     /**
      * 清理当前线程上下文。
-     * <p>
-     * 必须在请求结束或任务执行完成后调用，防止 ThreadLocal 数据泄漏。
      */
     public static void clear() {
         HOLDER.remove();
     }
 
     /**
-     * 当前用户信息占位模型。
+     * 当前用户和请求信息占位模型。
      *
-     * @param userId   用户 ID
-     * @param userName 用户名称
-     * @param tenantId 租户或组织 ID
+     * @param userId     用户 ID
+     * @param userName   用户名称
+     * @param orgId      所属组织 ID
+     * @param orgName    所属组织名称
+     * @param requestIp  请求 IP
+     * @param requestUri 请求 URI
      */
-    public record UserInfo(String userId, String userName, String tenantId) {
+    public static final class UserInfo {
+
+        private final String userId;
+        private final String userName;
+        private final String orgId;
+        private final String orgName;
+        private final String requestIp;
+        private final String requestUri;
+
+        public UserInfo(String userId, String userName, String tenantId) {
+            this(userId, userName, tenantId, null, null, null);
+        }
+
+        public UserInfo(String userId,
+                        String userName,
+                        String orgId,
+                        String orgName,
+                        String requestIp,
+                        String requestUri) {
+            this.userId = userId;
+            this.userName = userName;
+            this.orgId = orgId;
+            this.orgName = orgName;
+            this.requestIp = requestIp;
+            this.requestUri = requestUri;
+        }
+
+        public String userId() {
+            return userId;
+        }
+
+        public String userName() {
+            return userName;
+        }
+
+        public String orgId() {
+            return orgId;
+        }
+
+        public String orgName() {
+            return orgName;
+        }
+
+        public String requestIp() {
+            return requestIp;
+        }
+
+        public String requestUri() {
+            return requestUri;
+        }
     }
 }

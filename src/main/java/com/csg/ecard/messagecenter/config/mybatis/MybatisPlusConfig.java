@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.csg.ecard.messagecenter.common.constant.CommonConstants;
+import com.csg.ecard.messagecenter.common.enums.DeleteFlag;
 import com.csg.ecard.messagecenter.framework.context.CurrentUserContext;
 import org.apache.ibatis.reflection.MetaObject;
 import org.springframework.context.annotation.Bean;
@@ -52,7 +53,7 @@ public class MybatisPlusConfig {
                 strictInsertFill(metaObject, "updateTime", LocalDateTime.class, now);
                 strictInsertFill(metaObject, "createBy", String.class, operator);
                 strictInsertFill(metaObject, "updateBy", String.class, operator);
-                strictInsertFill(metaObject, "deleted", Integer.class, 0);
+                strictInsertFill(metaObject, "deleted", Integer.class, DeleteFlag.NORMAL.getCode());
             }
 
             @Override

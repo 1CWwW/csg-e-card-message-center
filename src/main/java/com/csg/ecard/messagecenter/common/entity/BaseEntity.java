@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
 /**
  * 数据库实体基础字段。
  * <p>
- * 供后续业务实体继承，统一主键、审计字段和逻辑删除字段；字段填充由 MyBatis-Plus 自动填充器处理。
+ * 供后续业务实体继承，统一主键、审计字段和逻辑删除字段，字段填充由 MyBatis-Plus 自动填充器处理。
  */
 @Getter
 @Setter
@@ -48,6 +48,6 @@ public abstract class BaseEntity implements Serializable {
 
     @TableLogic
     @TableField(fill = FieldFill.INSERT)
-    @Schema(description = "逻辑删除标识：0未删除，1已删除")
+    @Schema(description = "逻辑删除标记：0正常，1已删除")
     private Integer deleted;
 }

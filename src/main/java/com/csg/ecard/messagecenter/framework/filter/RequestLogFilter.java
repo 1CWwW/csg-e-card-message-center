@@ -43,6 +43,8 @@ public class RequestLogFilter extends OncePerRequestFilter {
 
         MDC.put(CommonConstants.TRACE_ID, traceId);
         response.setHeader(CommonConstants.TRACE_ID_HEADER, traceId);
+        CurrentUserContext.set(new CurrentUserContext.UserInfo(
+                null, null, null, null, request.getRemoteAddr(), request.getRequestURI()));
         try {
             filterChain.doFilter(request, response);
         } finally {

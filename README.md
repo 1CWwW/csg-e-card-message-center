@@ -129,3 +129,44 @@ mvn test
 ```
 
 如果命令提示 `release version 17 not supported` 或 Maven 输出的 Java version 不是 17，请先切换 `JAVA_HOME` 到 JDK 17 后重新执行。
+
+## 公共模型与通用规则模块
+
+当前公共模块只提供后续业务复用的基础能力，不包含登录认证、权限控制、消息中心业务 CRUD 或操作日志落库。
+
+### 枚举说明
+
+- 通用枚举集中放置在 `common.enums` 包下，包含渠道类型、通用启停状态、参数类型、消息发送状态、消息优先级、模板内容状态、逻辑删除标记和操作结果。
+- 枚举统一提供 `code`、`desc` 和 `fromCode()`，业务代码应复用枚举值，避免散落硬编码。
+- 错误码统一维护在 `ErrorCode`，与 `ApiResult` 和 `BizException` 保持兼容。
+
+### 编码规则
+
+- 场景编码不能为空，必须以大写字母开头，只允许大写字母、数字、下划线，最大长度 64，例如 `CANTEEN_DEDUCTION`。
+- 参数名不能为空，必须以字母开头，只允许字母和数字，最大长度 64，例如 `merchantName`。
+- 参数名保留字包括 `true`、`false`、`null`、`undefined`、`if`、`else`、`for`、`while`、`return`、`break`、`continue`。
+- 模板名称和渠道名称不能为空，最大长度 50；描述允许为空，非空时最大长度 200。
+
+### 消息 ID 规则
+
+- 消息 ID 格式为 `MSG_yyyyMMdd_序列号`，例如 `MSG_20260527_00001`。
+- 序列号至少 5 位，不足补 0。
+- 默认优先使用 Redis 按日期自增；Redis 不可用时降级为本地内存序列，仅保证当前 JVM 内并发安全，生产环境建议保障 Redis 可用。
+
+### 分页规则
+
+- 分页请求统一使用 `PageRequest`，包含 `pageNo`、`pageSize`、`keyword`、`orderBy`、`asc`。
+- 默认 `pageNo = 1`，默认 `pageSize = 10`，最大 `pageSize = 100`。
+- `pageNo` 小于 1 时自动修正为 1；`pageSize` 为空、小于 1 或超过最大值时自动修正为 10。
+- 分页结果统一使用 `PageResult<T>`，支持从 MyBatis-Plus `IPage<T>` 转换。
+
+### 当前用户上下文
+
+- `CurrentUserContext` 是当前阶段的占位能力，不实现登录、Token 或权限校验。
+- 上下文支持用户 ID、用户名称、所属组织 ID、所属组织名称、请求 IP 和请求 URI。
+- 请求结束时由过滤器清理 ThreadLocal，避免线程复用造成上下文残留。
+
+### 幂等能力
+
+- `IdempotentService` 支持通过业务 ID 或请求 ID 做重复请求判断，并支持设置过期时间。
+- 默认优先使用 Redis `SET NX EX`；Redis 不可用时降级为本地内存占位，避免公共能力导致项目启动失败。

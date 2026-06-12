@@ -2,39 +2,26 @@ package com.csg.ecard.messagecenter.common.page;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
  * 通用分页响应对象。
  * <p>
- * 用于统一返回分页记录、总数、页码和每页条数，可直接从 MyBatis-Plus 分页对象转换。
+ * 保留该类用于兼容已有代码，新代码优先使用 {@link PageResult}。
  *
  * @param <T> 分页记录类型
  */
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
 @Schema(description = "分页响应")
-public class PageResponse<T> {
+public class PageResponse<T> extends PageResult<T> {
 
-    @Schema(description = "数据列表")
-    private List<T> records = Collections.emptyList();
+    public PageResponse() {
+        super();
+    }
 
-    @Schema(description = "总条数")
-    private long total;
-
-    @Schema(description = "页码")
-    private long pageNo;
-
-    @Schema(description = "每页条数")
-    private long pageSize;
+    public PageResponse(List<T> records, long total, long pageNo, long pageSize) {
+        super(records, total, pageNo, pageSize, pageSize <= 0 ? 0 : (total + pageSize - 1) / pageSize);
+    }
 
     /**
      * 根据列表和分页元数据构造分页响应。
@@ -51,13 +38,19 @@ public class PageResponse<T> {
     }
 
     /**
-     * 从 MyBatis-Plus 分页结果构造分页响应。
+     * 从 MyBatis-Plus 分页对象转换为分页响应。
      *
      * @param page MyBatis-Plus 分页结果
      * @param <T>  分页记录类型
      * @return 分页响应
      */
     public static <T> PageResponse<T> of(IPage<T> page) {
-        return new PageResponse<>(page.getRecords(), page.getTotal(), page.getCurrent(), page.getSize());
+        PageResponse<T> response = new PageResponse<>();
+        response.setRecords(page.getRecords());
+        response.setTotal(page.getTotal());
+        response.setPageNo(page.getCurrent());
+        response.setPageSize(page.getSize());
+        response.setPages(page.getPages());
+        return response;
     }
 }
