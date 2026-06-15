@@ -1,9 +1,9 @@
 spring:
   datasource:
     driver-class-name: dm.jdbc.driver.DmDriver
-    url: jdbc:dm://localhost:5236/CSG_ECARD_MESSAGE_CENTER
-    username: ${DM_DB_USERNAME:SYSDBA}
-    password: ${DM_DB_PASSWORD:}
+    url: ${DM_URL:jdbc:dm://127.0.0.1:5236?schema=${DM_SCHEMA:CSG_ECARD_MESSAGE_CENTER}}
+    username: ${DM_USERNAME:${DM_DB_USERNAME:}}
+    password: ${DM_PASSWORD:${DM_DB_PASSWORD:}}
     hikari:
       minimum-idle: 5
       maximum-pool-size: 20

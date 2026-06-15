@@ -13,15 +13,12 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.jdbc.core.ConnectionCallback;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -43,7 +40,7 @@ public class DemoController {
     private final RabbitMessageSender rabbitMessageSender;
     private final MessageIdGenerator messageIdGenerator;
     private final IdempotentService idempotentService;
-    private final JdbcTemplate jdbcTemplate;
+    private final DataSource dataSource;
 
     /**
      * 验证服务是否正常启动。
@@ -138,13 +135,24 @@ public class DemoController {
     @GetMapping("/db")
     @Operation(summary = "达梦数据库连接验证")
     public ApiResult<Map<String, Object>> db() throws Exception {
-        Map<String, Object> result = jdbcTemplate.execute((ConnectionCallback<Map<String, Object>>) connection ->
-                Map.of(
-                    "databaseProductName", connection.getMetaData().getDatabaseProductName(),
-                    "databaseProductVersion", connection.getMetaData().getDatabaseProductVersion(),
-                    "valid", connection.isValid(3)
-                ));
+        Map<String, Object> result = new HashMap<>();
+        try (Connection connection = dataSource.getConnection()) {
+            DatabaseMetaData metaData = connection.getMetaData();
+            result.put("databaseProductName", metaData.getDatabaseProductName());
+            result.put("databaseProductVersion", metaData.getDatabaseProductVersion());
+            result.put("catalog", connection.getCatalog());
+            result.put("schema", readSchema(connection));
+            result.put("valid", connection.isValid(3));
+        }
         return ApiResult.success(result);
+    }
+
+    private String readSchema(Connection connection) {
+        try {
+            return connection.getSchema();
+        } catch (SQLException ex) {
+            return null;
+        }
     }
 
     /**
