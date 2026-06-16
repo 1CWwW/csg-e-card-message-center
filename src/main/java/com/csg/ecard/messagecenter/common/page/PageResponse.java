@@ -19,22 +19,22 @@ public class PageResponse<T> extends PageResult<T> {
         super();
     }
 
-    public PageResponse(List<T> records, long total, long pageNo, long pageSize) {
-        super(records, total, pageNo, pageSize, pageSize <= 0 ? 0 : (total + pageSize - 1) / pageSize);
+    public PageResponse(List<T> list, long total, long pageNo, long pageSize) {
+        super(list, total, pageNo, pageSize, pageSize <= 0 ? 0 : (total + pageSize - 1) / pageSize);
     }
 
     /**
      * 根据列表和分页元数据构造分页响应。
      *
-     * @param records  当前页记录
+     * @param list     当前页记录
      * @param total    总记录数
      * @param pageNo   当前页码
      * @param pageSize 每页条数
      * @param <T>      分页记录类型
      * @return 分页响应
      */
-    public static <T> PageResponse<T> of(List<T> records, long total, long pageNo, long pageSize) {
-        return new PageResponse<>(records, total, pageNo, pageSize);
+    public static <T> PageResponse<T> of(List<T> list, long total, long pageNo, long pageSize) {
+        return new PageResponse<>(list, total, pageNo, pageSize);
     }
 
     /**
@@ -46,7 +46,7 @@ public class PageResponse<T> extends PageResult<T> {
      */
     public static <T> PageResponse<T> of(IPage<T> page) {
         PageResponse<T> response = new PageResponse<>();
-        response.setRecords(page.getRecords());
+        response.setList(page.getRecords());
         response.setTotal(page.getTotal());
         response.setPageNo(page.getCurrent());
         response.setPageSize(page.getSize());

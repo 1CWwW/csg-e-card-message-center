@@ -12,6 +12,7 @@ public final class MessageCenterConstants {
     public static final long MAX_PAGE_SIZE = 100L;
     public static final String DEFAULT_DATE_TIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
     public static final int SCENE_CODE_MAX_LENGTH = 64;
+    public static final int SCENE_NAME_MAX_LENGTH = 50;
     public static final int PARAM_NAME_MAX_LENGTH = 64;
     public static final int TEMPLATE_NAME_MAX_LENGTH = 50;
     public static final int CHANNEL_NAME_MAX_LENGTH = 50;

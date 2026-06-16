@@ -3,10 +3,13 @@ package com.csg.ecard.messagecenter.common;
 import com.csg.ecard.messagecenter.common.enums.ChannelType;
 import com.csg.ecard.messagecenter.common.enums.DeleteFlag;
 import com.csg.ecard.messagecenter.common.page.PageRequest;
+import com.csg.ecard.messagecenter.common.page.PageResult;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.csg.ecard.messagecenter.common.utils.MessageIdGenerator;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import java.util.List;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,6 +40,20 @@ class CommonModelTest {
         assertThat(request.getPageSize()).isEqualTo(10L);
         assertThat(request.getAsc()).isTrue();
         assertThat(request.offset()).isZero();
+    }
+
+    @Test
+    void shouldSerializePageResultWithListField() throws Exception {
+        PageResult<String> pageResult = PageResult.of(List.of("scene"), 1, 1, 10);
+
+        String json = new ObjectMapper().writeValueAsString(pageResult);
+
+        assertThat(json).contains("\"list\"");
+        assertThat(json).contains("\"total\"");
+        assertThat(json).doesNotContain("\"records\"");
+        assertThat(json).doesNotContain("\"pageNo\"");
+        assertThat(json).doesNotContain("\"pageSize\"");
+        assertThat(json).doesNotContain("\"pages\"");
     }
 
     @Test
