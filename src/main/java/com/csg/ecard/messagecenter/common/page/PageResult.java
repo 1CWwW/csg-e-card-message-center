@@ -26,18 +26,18 @@ public class PageResult<T> {
     @Schema(description = "数据列表")
     private List<T> list = Collections.emptyList();
 
-    @Schema(description = "总条数")
+    @Schema(description = "总条数", type = "integer", format = "int64")
     private long total;
 
-    @Schema(description = "页码")
+    @Schema(description = "页码", hidden = true)
     @JsonIgnore
     private long pageNo;
 
-    @Schema(description = "每页条数")
+    @Schema(description = "每页条数", hidden = true)
     @JsonIgnore
     private long pageSize;
 
-    @Schema(description = "总页数")
+    @Schema(description = "总页数", hidden = true)
     @JsonIgnore
     private long pages;
 

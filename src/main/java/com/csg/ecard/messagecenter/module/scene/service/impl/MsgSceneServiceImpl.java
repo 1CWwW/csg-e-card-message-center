@@ -12,8 +12,11 @@ import com.csg.ecard.messagecenter.module.scene.dto.SceneCreateDTO;
 import com.csg.ecard.messagecenter.module.scene.dto.ScenePageQueryDTO;
 import com.csg.ecard.messagecenter.module.scene.dto.SceneUpdateDTO;
 import com.csg.ecard.messagecenter.module.scene.entity.MsgScene;
+import com.csg.ecard.messagecenter.module.scene.entity.MsgSceneParam;
 import com.csg.ecard.messagecenter.module.scene.enums.SceneModule;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneMapper;
+import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneParamMapper;
+import com.csg.ecard.messagecenter.module.scene.mapper.SceneParamCountResult;
 import com.csg.ecard.messagecenter.module.scene.service.MsgSceneService;
 import com.csg.ecard.messagecenter.module.scene.vo.MsgSceneVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneCodeCheckVO;
@@ -23,7 +26,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 场景管理服务实现。
@@ -37,6 +43,7 @@ public class MsgSceneServiceImpl implements MsgSceneService {
     private static final long UNAVAILABLE_RELATION_COUNT = 0L;
 
     private final MsgSceneMapper msgSceneMapper;
+    private final MsgSceneParamMapper msgSceneParamMapper;
 
     @Override
     public PageResult<MsgSceneVO> page(ScenePageQueryDTO query) {
@@ -54,13 +61,19 @@ public class MsgSceneServiceImpl implements MsgSceneService {
                 .orderByDesc(MsgScene::getCreateTime);
 
         Page<MsgScene> result = msgSceneMapper.selectPage(page, wrapper);
-        List<MsgSceneVO> list = result.getRecords().stream().map(this::toVO).toList();
+        Map<Long, Long> paramCountMap = countParamsBySceneIds(result.getRecords().stream()
+                .map(MsgScene::getId)
+                .toList());
+        List<MsgSceneVO> list = result.getRecords().stream()
+                .map(scene -> toVO(scene, paramCountMap.getOrDefault(scene.getId(), 0L)))
+                .toList();
         return PageResult.of(list, result.getTotal(), result.getCurrent(), result.getSize());
     }
 
     @Override
     public MsgSceneVO detail(Long id) {
-        return toVO(requireScene(id));
+        MsgScene scene = requireScene(id);
+        return toVO(scene, countParamsBySceneId(scene.getId()));
     }
 
     @Override
@@ -87,7 +100,7 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         scene.setDescription(request.getDescription());
         scene.setStatus(resolveCreateStatus(request.getStatus()));
         insertScene(scene);
-        return toVO(scene);
+        return toVO(scene, 0L);
     }
 
     @Override
@@ -129,7 +142,7 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         scene.setStatus(nextStatus);
         msgSceneMapper.updateById(scene);
         existed.setStatus(nextStatus);
-        return toVO(existed);
+        return toVO(existed, countParamsBySceneId(existed.getId()));
     }
 
     private void insertScene(MsgScene scene) {
@@ -211,7 +224,7 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         return status;
     }
 
-    private MsgSceneVO toVO(MsgScene scene) {
+    private MsgSceneVO toVO(MsgScene scene, Long paramCount) {
         MsgSceneVO vo = new MsgSceneVO();
         vo.setId(scene.getId());
         vo.setSceneCode(scene.getSceneCode());
@@ -221,16 +234,30 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         vo.setDescription(scene.getDescription());
         vo.setStatus(scene.getStatus());
         vo.setStatusDesc(resolveStatusDesc(scene.getStatus()));
-        vo.setParamCount(resolveParamCount(scene.getId()));
+        vo.setParamCount(paramCount == null ? 0L : paramCount);
         vo.setTemplateCount(resolveTemplateCount(scene.getId()));
         vo.setCreatedAt(scene.getCreateTime());
         vo.setUpdatedAt(scene.getUpdateTime());
         return vo;
     }
 
-    private Long resolveParamCount(Long sceneId) {
-        // 场景参数模块尚未实现，当前按需求返回 0；后续模块完成后在此替换为批量真实统计。
-        return UNAVAILABLE_RELATION_COUNT;
+    private Long countParamsBySceneId(Long sceneId) {
+        if (sceneId == null) {
+            return 0L;
+        }
+        Long count = msgSceneParamMapper.selectCount(new LambdaQueryWrapper<MsgSceneParam>()
+                .eq(MsgSceneParam::getSceneId, sceneId));
+        return count == null ? 0L : count;
+    }
+
+    private Map<Long, Long> countParamsBySceneIds(List<Long> sceneIds) {
+        if (sceneIds == null || sceneIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return msgSceneParamMapper.selectParamCountsBySceneIds(sceneIds).stream()
+                .collect(Collectors.toMap(SceneParamCountResult::getSceneId,
+                        SceneParamCountResult::getParamCount,
+                        Long::sum));
     }
 
     private Long resolveTemplateCount(Long sceneId) {

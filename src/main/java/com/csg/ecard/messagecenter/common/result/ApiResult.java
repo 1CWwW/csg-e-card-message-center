@@ -5,14 +5,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
-import org.slf4j.MDC;
-
-import java.time.LocalDateTime;
 
 /**
  * REST 接口统一返回对象。
- * <p>
- * Controller 层应统一返回该结构，确保成功、失败、链路追踪 ID 和响应时间字段一致。
  *
  * @param <T> 响应数据类型
  */
@@ -31,19 +26,10 @@ public class ApiResult<T> {
     @Schema(description = "响应数据")
     private T data;
 
-    @Schema(description = "链路追踪ID")
-    private String traceId;
-
-    @Schema(description = "响应时间")
-    private LocalDateTime timestamp;
-
     private ApiResult(String code, String message, T data) {
         this.code = code;
         this.message = message;
         this.data = data;
-        // traceId 由请求日志过滤器写入 MDC，便于调用方和服务日志关联排查。
-        this.traceId = MDC.get("traceId");
-        this.timestamp = LocalDateTime.now();
     }
 
     /**

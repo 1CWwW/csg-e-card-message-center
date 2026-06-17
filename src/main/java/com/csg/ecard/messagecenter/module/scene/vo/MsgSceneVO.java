@@ -1,5 +1,6 @@
 package com.csg.ecard.messagecenter.module.scene.vo;
 
+import com.csg.ecard.messagecenter.common.serialization.JsonLongId;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
 import lombok.Setter;
@@ -14,7 +15,8 @@ import java.time.LocalDateTime;
 @Schema(description = "场景响应结果")
 public class MsgSceneVO {
 
-    @Schema(description = "主键ID")
+    @JsonLongId
+    @Schema(description = "主键ID", type = "string")
     private Long id;
 
     @Schema(description = "场景编码")
@@ -32,16 +34,16 @@ public class MsgSceneVO {
     @Schema(description = "场景描述")
     private String description;
 
-    @Schema(description = "启用状态")
+    @Schema(description = "启用状态", type = "integer", format = "int32")
     private Integer status;
 
     @Schema(description = "启用状态名称")
     private String statusDesc;
 
-    @Schema(description = "参数数量")
+    @Schema(description = "参数数量", type = "integer", format = "int64")
     private Long paramCount;
 
-    @Schema(description = "关联模板数量")
+    @Schema(description = "关联模板数量", type = "integer", format = "int64")
     private Long templateCount;
 
     @Schema(description = "创建时间")

@@ -36,8 +36,13 @@ class MessageCenterValidatorTest {
         assertThat(MessageCenterValidator.isReservedParamName("for")).isTrue();
         assertThat(MessageCenterValidator.isReservedParamName("while")).isTrue();
         assertThat(MessageCenterValidator.isReservedParamName("return")).isTrue();
+        assertThat(MessageCenterValidator.isReservedParamName("function")).isTrue();
+        assertThat(MessageCenterValidator.isReservedParamName("VAR")).isTrue();
+        assertThat(MessageCenterValidator.isReservedParamName("let")).isTrue();
+        assertThat(MessageCenterValidator.isReservedParamName("const")).isTrue();
         assertThat(MessageCenterValidator.isReservedParamName("break")).isTrue();
         assertThat(MessageCenterValidator.isReservedParamName("continue")).isTrue();
         assertThat(MessageCenterValidator.isValidParamName("return")).isFalse();
+        assertThat(MessageCenterValidator.isValidParamName("function")).isFalse();
     }
 }

@@ -14,6 +14,8 @@ import com.csg.ecard.messagecenter.module.scene.dto.SceneUpdateDTO;
 import com.csg.ecard.messagecenter.module.scene.entity.MsgScene;
 import com.csg.ecard.messagecenter.module.scene.enums.SceneModule;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneMapper;
+import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneParamMapper;
+import com.csg.ecard.messagecenter.module.scene.mapper.SceneParamCountResult;
 import com.csg.ecard.messagecenter.module.scene.service.impl.MsgSceneServiceImpl;
 import com.csg.ecard.messagecenter.module.scene.vo.MsgSceneVO;
 import org.junit.jupiter.api.Test;
@@ -40,6 +42,9 @@ class MsgSceneServiceImplTest {
 
     @Mock
     private MsgSceneMapper msgSceneMapper;
+
+    @Mock
+    private MsgSceneParamMapper msgSceneParamMapper;
 
     @InjectMocks
     private MsgSceneServiceImpl msgSceneService;
@@ -213,6 +218,10 @@ class MsgSceneServiceImplTest {
         mapperResult.setTotal(1L);
         mapperResult.setRecords(List.of(scene(1L, "CANTEEN_CONSUME_SUCCESS", CommonStatus.ENABLE.getCode())));
         when(msgSceneMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(mapperResult);
+        SceneParamCountResult countResult = new SceneParamCountResult();
+        countResult.setSceneId(1L);
+        countResult.setParamCount(3L);
+        when(msgSceneParamMapper.selectParamCountsBySceneIds(any())).thenReturn(List.of(countResult));
 
         PageResult<MsgSceneVO> result = msgSceneService.page(query);
 
@@ -225,7 +234,7 @@ class MsgSceneServiceImplTest {
         MsgSceneVO record = result.getList().get(0);
         assertThat(record.getCreatedAt()).isNotNull();
         assertThat(record.getUpdatedAt()).isNotNull();
-        assertThat(record.getParamCount()).isZero();
+        assertThat(record.getParamCount()).isEqualTo(3L);
         assertThat(record.getTemplateCount()).isZero();
         String sqlSegment = wrapperCaptor.getValue().getSqlSegment();
         assertThat(sqlSegment).contains("scene_code");

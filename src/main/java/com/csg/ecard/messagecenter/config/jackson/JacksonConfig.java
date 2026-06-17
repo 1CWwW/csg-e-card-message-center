@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.datatype.jsr310.deser.LocalDateTimeDeserializer;
 import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer;
-import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import org.springframework.boot.autoconfigure.jackson.Jackson2ObjectMapperBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,7 +14,7 @@ import java.time.format.DateTimeFormatter;
 /**
  * Jackson JSON 序列化配置。
  * <p>
- * 统一接口、Redis 缓存和 RabbitMQ 消息中的时间格式，并将 Long 输出为 String，避免前端精度丢失。
+ * 仅统一时间格式；业务 ID 通过 VO 字段上的局部注解单独序列化为字符串。
  */
 @Configuration
 public class JacksonConfig {
@@ -31,9 +30,6 @@ public class JacksonConfig {
     public Jackson2ObjectMapperBuilderCustomizer jacksonCustomizer() {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern(DATE_TIME_PATTERN);
         SimpleModule module = new SimpleModule();
-        // JavaScript Number 无法安全承载 64 位整数，统一转字符串返回。
-        module.addSerializer(Long.class, ToStringSerializer.instance);
-        module.addSerializer(Long.TYPE, ToStringSerializer.instance);
         module.addSerializer(LocalDateTime.class, new LocalDateTimeSerializer(formatter));
         module.addDeserializer(LocalDateTime.class, new LocalDateTimeDeserializer(formatter));
 

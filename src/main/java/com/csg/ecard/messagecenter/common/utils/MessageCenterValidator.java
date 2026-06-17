@@ -17,7 +17,8 @@ public final class MessageCenterValidator {
     private static final Pattern PARAM_NAME_PATTERN = Pattern.compile("^[A-Za-z][A-Za-z0-9]*$");
     private static final Set<String> PARAM_NAME_RESERVED_WORDS = Set.of(
             "true", "false", "null", "undefined", "if", "else",
-            "for", "while", "return", "break", "continue"
+            "for", "while", "return", "function", "var", "let", "const",
+            "break", "continue"
     );
 
     private MessageCenterValidator() {
