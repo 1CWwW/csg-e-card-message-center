@@ -15,4 +15,12 @@ public interface SceneParamUsageChecker {
      * @return 引用结果
      */
     SceneParamUsageVO checkUsage(MsgSceneParam param);
+
+    /**
+     * 一次构建指定场景全部参数的模板引用索引。
+     *
+     * @param sceneId 场景ID
+     * @return 场景参数引用索引
+     */
+    SceneParamUsageIndex buildUsageIndex(Long sceneId);
 }

@@ -17,6 +17,7 @@ import com.csg.ecard.messagecenter.module.scene.enums.SceneModule;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneMapper;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneParamMapper;
 import com.csg.ecard.messagecenter.module.scene.mapper.SceneParamCountResult;
+import com.csg.ecard.messagecenter.module.scene.mapper.SceneTemplateCountResult;
 import com.csg.ecard.messagecenter.module.scene.service.MsgSceneService;
 import com.csg.ecard.messagecenter.module.scene.vo.MsgSceneVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneCodeCheckVO;
@@ -40,8 +41,6 @@ public class MsgSceneServiceImpl implements MsgSceneService {
 
     private static final String SCENE_NOT_FOUND_MESSAGE = "场景不存在";
     private static final String SCENE_CODE_DUPLICATE_MESSAGE = "场景编码已存在";
-    private static final long UNAVAILABLE_RELATION_COUNT = 0L;
-
     private final MsgSceneMapper msgSceneMapper;
     private final MsgSceneParamMapper msgSceneParamMapper;
 
@@ -64,8 +63,13 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         Map<Long, Long> paramCountMap = countParamsBySceneIds(result.getRecords().stream()
                 .map(MsgScene::getId)
                 .toList());
+        Map<Long, Long> templateCountMap = countTemplatesBySceneIds(result.getRecords().stream()
+                .map(MsgScene::getId)
+                .toList());
         List<MsgSceneVO> list = result.getRecords().stream()
-                .map(scene -> toVO(scene, paramCountMap.getOrDefault(scene.getId(), 0L)))
+                .map(scene -> toVO(scene,
+                        paramCountMap.getOrDefault(scene.getId(), 0L),
+                        templateCountMap.getOrDefault(scene.getId(), 0L)))
                 .toList();
         return PageResult.of(list, result.getTotal(), result.getCurrent(), result.getSize());
     }
@@ -73,7 +77,7 @@ public class MsgSceneServiceImpl implements MsgSceneService {
     @Override
     public MsgSceneVO detail(Long id) {
         MsgScene scene = requireScene(id);
-        return toVO(scene, countParamsBySceneId(scene.getId()));
+        return toVO(scene, countParamsBySceneId(scene.getId()), countTemplatesBySceneId(scene.getId()));
     }
 
     @Override
@@ -100,7 +104,7 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         scene.setDescription(request.getDescription());
         scene.setStatus(resolveCreateStatus(request.getStatus()));
         insertScene(scene);
-        return toVO(scene, 0L);
+        return toVO(scene, 0L, 0L);
     }
 
     @Override
@@ -126,6 +130,11 @@ public class MsgSceneServiceImpl implements MsgSceneService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         requireScene(id);
+        Long templateCount = countTemplatesBySceneId(id);
+        if (templateCount > 0) {
+            throw new BizException(ErrorCode.DELETE_NOT_ALLOWED,
+                    "当前场景存在 " + templateCount + " 个模板，无法删除。");
+        }
         msgSceneMapper.deleteById(id);
     }
 
@@ -142,7 +151,9 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         scene.setStatus(nextStatus);
         msgSceneMapper.updateById(scene);
         existed.setStatus(nextStatus);
-        return toVO(existed, countParamsBySceneId(existed.getId()));
+        return toVO(existed,
+                countParamsBySceneId(existed.getId()),
+                countTemplatesBySceneId(existed.getId()));
     }
 
     private void insertScene(MsgScene scene) {
@@ -224,7 +235,7 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         return status;
     }
 
-    private MsgSceneVO toVO(MsgScene scene, Long paramCount) {
+    private MsgSceneVO toVO(MsgScene scene, Long paramCount, Long templateCount) {
         MsgSceneVO vo = new MsgSceneVO();
         vo.setId(scene.getId());
         vo.setSceneCode(scene.getSceneCode());
@@ -235,7 +246,7 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         vo.setStatus(scene.getStatus());
         vo.setStatusDesc(resolveStatusDesc(scene.getStatus()));
         vo.setParamCount(paramCount == null ? 0L : paramCount);
-        vo.setTemplateCount(resolveTemplateCount(scene.getId()));
+        vo.setTemplateCount(templateCount == null ? 0L : templateCount);
         vo.setCreatedAt(scene.getCreateTime());
         vo.setUpdatedAt(scene.getUpdateTime());
         return vo;
@@ -260,9 +271,26 @@ public class MsgSceneServiceImpl implements MsgSceneService {
                         Long::sum));
     }
 
-    private Long resolveTemplateCount(Long sceneId) {
-        // 模板模块尚未实现，当前按需求返回 0；后续模块完成后在此替换为批量真实统计。
-        return UNAVAILABLE_RELATION_COUNT;
+    private Long countTemplatesBySceneId(Long sceneId) {
+        if (sceneId == null) {
+            return 0L;
+        }
+        Long count = msgSceneMapper.selectTemplateCountBySceneId(sceneId);
+        return count == null ? 0L : count;
+    }
+
+    private Map<Long, Long> countTemplatesBySceneIds(List<Long> sceneIds) {
+        if (sceneIds == null || sceneIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<SceneTemplateCountResult> results = msgSceneMapper.selectTemplateCountsBySceneIds(sceneIds);
+        if (results == null || results.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return results.stream()
+                .collect(Collectors.toMap(SceneTemplateCountResult::getSceneId,
+                        SceneTemplateCountResult::getTemplateCount,
+                        Long::sum));
     }
 
     private String resolveModuleDesc(String module) {

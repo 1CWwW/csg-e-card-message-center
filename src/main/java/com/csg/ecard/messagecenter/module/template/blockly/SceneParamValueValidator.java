@@ -1,0 +1,149 @@
+package com.csg.ecard.messagecenter.module.template.blockly;
+
+import com.csg.ecard.messagecenter.common.enums.ErrorCode;
+import com.csg.ecard.messagecenter.common.enums.ParamType;
+import com.csg.ecard.messagecenter.common.exception.BizException;
+import com.csg.ecard.messagecenter.module.scene.entity.MsgSceneParam;
+import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 场景参数示例值校验与正文输出转换器。
+ */
+@Component
+public class SceneParamValueValidator {
+
+    private static final int REQUIRED = 1;
+    private static final DateTimeFormatter TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /**
+     * 按场景参数定义校验示例值，并转换为正文字符串。
+     *
+     * @param param    场景参数定义
+     * @param value    示例值
+     * @param provided 请求是否提供该参数名
+     * @return 参数正文值，非必填参数未提供时返回空字符串
+     */
+    public String validateAndFormat(MsgSceneParam param, JsonNode value, boolean provided) {
+        ParamType type = requireParamType(param);
+        if (!provided || value == null || value.isNull()) {
+            return missingValue(param);
+        }
+        return switch (type) {
+            case STRING -> formatString(param, value);
+            case NUMBER -> formatNumber(param, value);
+            case TIME -> formatTime(param, value);
+            case STRING_ARRAY -> formatStringArray(param, value);
+            case NUMBER_ARRAY -> formatNumberArray(param, value);
+        };
+    }
+
+    private String formatString(MsgSceneParam param, JsonNode value) {
+        if (!value.isTextual()) {
+            throw typeError(param, "JSON字符串");
+        }
+        String text = value.textValue();
+        if (text.isEmpty() && isRequired(param)) {
+            throw requiredError(param);
+        }
+        return text;
+    }
+
+    private String formatNumber(MsgSceneParam param, JsonNode value) {
+        if (!value.isNumber()) {
+            throw typeError(param, "JSON数字");
+        }
+        return value.decimalValue().toPlainString();
+    }
+
+    private String formatTime(MsgSceneParam param, JsonNode value) {
+        if (!value.isTextual()) {
+            throw typeError(param, "格式为yyyy-MM-dd HH:mm:ss的JSON字符串");
+        }
+        try {
+            return LocalDateTime.parse(value.textValue(), TIME_FORMATTER).format(TIME_FORMATTER);
+        } catch (DateTimeParseException ex) {
+            throw typeError(param, "格式为yyyy-MM-dd HH:mm:ss的JSON字符串");
+        }
+    }
+
+    private String formatStringArray(MsgSceneParam param, JsonNode value) {
+        if (!value.isArray()) {
+            throw typeError(param, "JSON字符串数组");
+        }
+        if (value.isEmpty()) {
+            return emptyArray(param);
+        }
+        List<String> items = new ArrayList<>();
+        for (JsonNode item : value) {
+            if (!item.isTextual()) {
+                throw typeError(param, "JSON字符串数组");
+            }
+            items.add(item.textValue());
+        }
+        return String.join("，", items);
+    }
+
+    private String formatNumberArray(MsgSceneParam param, JsonNode value) {
+        if (!value.isArray()) {
+            throw typeError(param, "JSON数字数组");
+        }
+        if (value.isEmpty()) {
+            return emptyArray(param);
+        }
+        List<String> items = new ArrayList<>();
+        for (JsonNode item : value) {
+            if (!item.isNumber()) {
+                throw typeError(param, "JSON数字数组");
+            }
+            BigDecimal number = item.decimalValue();
+            items.add(number.toPlainString());
+        }
+        return String.join("，", items);
+    }
+
+    private ParamType requireParamType(MsgSceneParam param) {
+        try {
+            return ParamType.fromCode(param.getParamType());
+        } catch (IllegalArgumentException ex) {
+            throw new BizException(ErrorCode.PARAM_ERROR,
+                    "场景参数类型不合法：" + param.getParamName());
+        }
+    }
+
+    private String missingValue(MsgSceneParam param) {
+        if (isRequired(param)) {
+            throw requiredError(param);
+        }
+        return "";
+    }
+
+    private String emptyArray(MsgSceneParam param) {
+        if (isRequired(param)) {
+            throw requiredError(param);
+        }
+        return "";
+    }
+
+    private boolean isRequired(MsgSceneParam param) {
+        return Integer.valueOf(REQUIRED).equals(param.getIsRequired());
+    }
+
+    private BizException requiredError(MsgSceneParam param) {
+        return new BizException(ErrorCode.PARAM_ERROR,
+                "必填参数未提供或值为空：" + param.getParamName());
+    }
+
+    private BizException typeError(MsgSceneParam param, String expected) {
+        return new BizException(ErrorCode.PARAM_ERROR,
+                "参数" + param.getParamName() + "必须是" + expected);
+    }
+}

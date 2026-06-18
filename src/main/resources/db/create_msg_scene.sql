@@ -177,3 +177,88 @@ ON COLUMN msg_channel_unit.create_by IS '创建人';
 
 CREATE INDEX idx_msg_channel_unit_channel_id ON msg_channel_unit (channel_id);
 CREATE INDEX idx_msg_channel_unit_unit_id ON msg_channel_unit (unit_id);
+
+CREATE TABLE msg_template
+(
+    id            BIGINT                              NOT NULL,
+    template_name VARCHAR(50)                         NOT NULL,
+    scene_id      BIGINT                              NOT NULL,
+    channel_type  VARCHAR(32)                         NOT NULL,
+    blockly_json  CLOB,
+    status        INT       DEFAULT 0                 NOT NULL,
+    create_by     VARCHAR(64),
+    create_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    update_by     VARCHAR(64),
+    update_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted       INT       DEFAULT 0                 NOT NULL,
+
+    CONSTRAINT pk_msg_template
+        PRIMARY KEY (id),
+
+    CONSTRAINT ck_msg_template_status
+        CHECK (status IN (0, 1)),
+
+    CONSTRAINT ck_msg_template_deleted
+        CHECK (deleted IN (0, 1))
+);
+
+COMMENT
+ON TABLE msg_template IS '消息模板表';
+COMMENT
+ON COLUMN msg_template.id IS '主键ID';
+COMMENT
+ON COLUMN msg_template.template_name IS '模板名称';
+COMMENT
+ON COLUMN msg_template.scene_id IS '场景ID';
+COMMENT
+ON COLUMN msg_template.channel_type IS '渠道类型：SMS、EMAIL、ELINK、IN_APP';
+COMMENT
+ON COLUMN msg_template.blockly_json IS 'Blockly内容JSON';
+COMMENT
+ON COLUMN msg_template.status IS '启停状态，1启用，0停用';
+COMMENT
+ON COLUMN msg_template.create_by IS '创建人';
+COMMENT
+ON COLUMN msg_template.create_time IS '创建时间';
+COMMENT
+ON COLUMN msg_template.update_by IS '更新人';
+COMMENT
+ON COLUMN msg_template.update_time IS '更新时间';
+COMMENT
+ON COLUMN msg_template.deleted IS '逻辑删除标记，0正常，1删除';
+
+CREATE INDEX idx_msg_template_scene_id ON msg_template (scene_id);
+CREATE INDEX idx_msg_template_channel_type ON msg_template (channel_type);
+CREATE INDEX idx_msg_template_status ON msg_template (status);
+CREATE INDEX idx_msg_template_scene_name ON msg_template (scene_id, template_name);
+
+CREATE TABLE msg_template_unit
+(
+    id          BIGINT      NOT NULL,
+    template_id BIGINT      NOT NULL,
+    unit_id     VARCHAR(64) NOT NULL,
+    create_by   VARCHAR(64),
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+
+    CONSTRAINT pk_msg_template_unit
+        PRIMARY KEY (id),
+
+    CONSTRAINT uk_msg_template_unit
+        UNIQUE (template_id, unit_id)
+);
+
+COMMENT
+ON TABLE msg_template_unit IS '模板适用单位关联表';
+COMMENT
+ON COLUMN msg_template_unit.id IS '主键ID';
+COMMENT
+ON COLUMN msg_template_unit.template_id IS '模板ID';
+COMMENT
+ON COLUMN msg_template_unit.unit_id IS '单位ID';
+COMMENT
+ON COLUMN msg_template_unit.create_by IS '创建人';
+COMMENT
+ON COLUMN msg_template_unit.create_time IS '创建时间';
+
+CREATE INDEX idx_msg_template_unit_template_id ON msg_template_unit (template_id);
+CREATE INDEX idx_msg_template_unit_unit_id ON msg_template_unit (unit_id);
