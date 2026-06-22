@@ -3,17 +3,29 @@ package com.csg.ecard.messagecenter.module.template.service;
 import com.csg.ecard.messagecenter.common.enums.ChannelType;
 import com.csg.ecard.messagecenter.common.enums.CommonStatus;
 import com.csg.ecard.messagecenter.common.enums.ErrorCode;
+import com.csg.ecard.messagecenter.common.enums.ParamType;
 import com.csg.ecard.messagecenter.common.exception.BizException;
+import com.csg.ecard.messagecenter.module.scene.entity.MsgSceneParam;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneMapper;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneParamMapper;
+import com.csg.ecard.messagecenter.module.template.blockly.BlockRenderContext;
+import com.csg.ecard.messagecenter.module.template.blockly.BlocklyBlockTypes;
 import com.csg.ecard.messagecenter.module.template.blockly.BlocklyJsonValidator;
+import com.csg.ecard.messagecenter.module.template.blockly.BlocklyRenderResult;
 import com.csg.ecard.messagecenter.module.template.blockly.BlocklyRenderer;
+import com.csg.ecard.messagecenter.module.template.blockly.BlocklyValidationMode;
+import com.csg.ecard.messagecenter.module.template.blockly.BlocklyValidationResult;
+import com.csg.ecard.messagecenter.module.template.blockly.SceneParamValueValidator;
 import com.csg.ecard.messagecenter.module.template.dto.TemplateUpdateDTO;
 import com.csg.ecard.messagecenter.module.template.entity.MsgTemplate;
 import com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateMapper;
 import com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateUnitMapper;
 import com.csg.ecard.messagecenter.module.template.mapper.TemplateQueryRow;
 import com.csg.ecard.messagecenter.module.template.service.impl.MsgTemplateServiceImpl;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,6 +33,14 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -30,7 +50,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 消息模板服务单元测试。
+ * 消息模板服务及 Blockly 表达式单元测试。
  */
 @ExtendWith(MockitoExtension.class)
 class MsgTemplateServiceImplTest {
@@ -52,6 +72,10 @@ class MsgTemplateServiceImplTest {
     private MsgTemplateServiceImpl msgTemplateService;
 
     private MsgTemplate existed;
+    private ObjectMapper objectMapper;
+    private BlocklyJsonValidator actualValidator;
+    private BlocklyRenderer actualRenderer;
+    private Map<Long, MsgSceneParam> expressionParams;
 
     @BeforeEach
     void setUp() {
@@ -61,6 +85,21 @@ class MsgTemplateServiceImplTest {
         existed.setChannelType(ChannelType.SMS.getCode());
         existed.setTemplateName("原模板");
         existed.setStatus(CommonStatus.DISABLE.getCode());
+
+        objectMapper = new ObjectMapper();
+        actualValidator = new BlocklyJsonValidator(objectMapper);
+        actualRenderer = new BlocklyRenderer(new SceneParamValueValidator());
+        expressionParams = new LinkedHashMap<>();
+        expressionParams.put(1L, param(1L, "left", ParamType.NUMBER));
+        expressionParams.put(2L, param(2L, "right", ParamType.NUMBER));
+        expressionParams.put(3L, param(3L, "zero", ParamType.NUMBER));
+        expressionParams.put(4L, param(4L, "sendTime", ParamType.TIME));
+        expressionParams.put(5L, param(5L, "branch0", ParamType.STRING));
+        expressionParams.put(6L, param(6L, "branch1", ParamType.STRING));
+        expressionParams.put(7L, param(7L, "elseBranch", ParamType.STRING));
+        expressionParams.put(8L, optionalParam(8L, "stringItems", ParamType.STRING_ARRAY));
+        expressionParams.put(9L, optionalParam(9L, "numberItems", ParamType.NUMBER_ARRAY));
+        expressionParams.put(10L, param(10L, "prefix", ParamType.STRING));
     }
 
     @Test
@@ -106,5 +145,558 @@ class MsgTemplateServiceImplTest {
 
         verify(msgTemplateMapper, never()).updateById(any(MsgTemplate.class));
         verify(msgTemplateUnitMapper, never()).deleteByTemplateId(any());
+    }
+
+    @Test
+    void shouldRenderNestedArithmeticWithoutPrecisionLoss() {
+        ObjectNode divide = binary(BlocklyBlockTypes.MATH_ARITHMETIC, "DIVIDE",
+                "A", paramBlock(1L, "left", ParamType.NUMBER),
+                "B", paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode modulo = binary(BlocklyBlockTypes.MATH_MODULO, null,
+                "DIVIDEND", paramBlock(1L, "left", ParamType.NUMBER),
+                "DIVISOR", paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode addition = binary(BlocklyBlockTypes.MATH_ARITHMETIC, "ADD",
+                "A", divide, "B", modulo);
+
+        BlocklyRenderResult result = render(addition, Map.of(
+                "left", objectMapper.valueToTree(new BigDecimal("10.0")),
+                "right", objectMapper.valueToTree(new BigDecimal("4"))
+        ));
+
+        assertThat(result.renderedContent()).isEqualTo("4.5");
+        assertThat(result.usedParams()).containsExactly("left", "right");
+    }
+
+    @Test
+    void shouldKeepExistingTextJoinAndFormatBlocksCompatible() {
+        ObjectNode amount = unary(BlocklyBlockTypes.AMOUNT_FORMAT, "VALUE",
+                paramBlock(1L, "left", ParamType.NUMBER));
+        ObjectNode time = unary(BlocklyBlockTypes.TIME_FORMAT, "VALUE",
+                paramBlock(4L, "sendTime", ParamType.TIME));
+        ObjectNode join = objectMapper.createObjectNode();
+        join.put("type", BlocklyBlockTypes.TEXT_JOIN);
+        putInput(join, "ADD0", textBlock("金额："));
+        putInput(join, "ADD1", amount);
+        putInput(join, "ADD2", textBlock("，时间："));
+        putInput(join, "ADD3", time);
+
+        BlocklyRenderResult result = render(join, Map.of(
+                "left", objectMapper.valueToTree(new BigDecimal("10")),
+                "sendTime", objectMapper.valueToTree("2026-06-22 10:00:00")
+        ));
+
+        assertThat(result.renderedContent()).isEqualTo("金额：10.00，时间：2026-06-22 10:00:00");
+        assertThat(result.usedParams()).containsExactly("left", "sendTime");
+    }
+
+    @Test
+    void shouldRejectDivisionAndModuloByZero() {
+        ObjectNode division = binary(BlocklyBlockTypes.MATH_ARITHMETIC, "DIVIDE",
+                "A", paramBlock(1L, "left", ParamType.NUMBER),
+                "B", paramBlock(3L, "zero", ParamType.NUMBER));
+        ObjectNode modulo = binary(BlocklyBlockTypes.MATH_MODULO, null,
+                "DIVIDEND", paramBlock(1L, "left", ParamType.NUMBER),
+                "DIVISOR", paramBlock(3L, "zero", ParamType.NUMBER));
+        Map<String, JsonNode> values = Map.of(
+                "left", objectMapper.valueToTree(10),
+                "zero", objectMapper.valueToTree(0)
+        );
+
+        assertThatThrownBy(() -> render(division, values))
+                .isInstanceOf(BizException.class)
+                .hasMessage("math_arithmetic 的除数不能为 0");
+        assertThatThrownBy(() -> render(modulo, values))
+                .isInstanceOf(BizException.class)
+                .hasMessage("math_modulo 的除数不能为 0");
+    }
+
+    @Test
+    void shouldRejectInvalidExpressionTypeAndOperatorDuringValidation() {
+        ObjectNode invalidType = binary(BlocklyBlockTypes.MATH_ARITHMETIC, "ADD",
+                "A", textBlock("1"),
+                "B", paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode invalidOperator = binary(BlocklyBlockTypes.LOGIC_COMPARE, "MATCH",
+                "A", paramBlock(1L, "left", ParamType.NUMBER),
+                "B", paramBlock(2L, "right", ParamType.NUMBER));
+
+        assertThatThrownBy(() -> validate(invalidType))
+                .isInstanceOf(BizException.class)
+                .hasMessage("math_arithmetic 的输入必须为 数字");
+        assertThatThrownBy(() -> validate(invalidOperator))
+                .isInstanceOf(BizException.class)
+                .hasMessage("logic_compare 的操作符 OP 不支持");
+    }
+
+    @Test
+    void shouldEvaluateBooleanAndEscapedLikeExpressions() throws Exception {
+        ObjectNode greater = binary(BlocklyBlockTypes.LOGIC_COMPARE, "GT",
+                "A", paramBlock(1L, "left", ParamType.NUMBER),
+                "B", paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode divideByZero = binary(BlocklyBlockTypes.MATH_ARITHMETIC, "DIVIDE",
+                "A", paramBlock(1L, "left", ParamType.NUMBER),
+                "B", paramBlock(3L, "zero", ParamType.NUMBER));
+        ObjectNode unreachableCompare = binary(BlocklyBlockTypes.LOGIC_COMPARE, "GT",
+                "A", divideByZero,
+                "B", paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode shortCircuitOr = binary(BlocklyBlockTypes.LOGIC_OPERATION, "OR",
+                "A", greater, "B", unreachableCompare);
+        ObjectNode negate = unary(BlocklyBlockTypes.LOGIC_NEGATE, "BOOL", greater);
+        ObjectNode contains = binary(BlocklyBlockTypes.STRING_CONTAINS, null,
+                "TEXT", textBlock("message-center"),
+                "SUBSTRING", textBlock("center"));
+        ObjectNode like = binary(BlocklyBlockTypes.STRING_LIKE, null,
+                "TEXT", textBlock("a.zz[x]"),
+                "PATTERN", textBlock("a.%[x]"));
+        ObjectNode regexNotExecuted = binary(BlocklyBlockTypes.STRING_LIKE, null,
+                "TEXT", textBlock("abc"),
+                "PATTERN", textBlock("a.*"));
+        Map<String, JsonNode> values = Map.of(
+                "left", objectMapper.valueToTree(10),
+                "right", objectMapper.valueToTree(4),
+                "zero", objectMapper.valueToTree(0)
+        );
+
+        assertThat(evaluateExpression(shortCircuitOr, values)).isEqualTo(true);
+        assertThat(evaluateExpression(negate, values)).isEqualTo(false);
+        assertThat(evaluateExpression(contains, values)).isEqualTo(true);
+        assertThat(evaluateExpression(like, values)).isEqualTo(true);
+        assertThat(evaluateExpression(regexNotExecuted, values)).isEqualTo(false);
+    }
+
+    @Test
+    void shouldShortCircuitControlsIfAndTrackOnlyExecutedBranchParams() {
+        ObjectNode trueCondition = compare("GT",
+                paramBlock(1L, "left", ParamType.NUMBER),
+                paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode divideByZero = binary(BlocklyBlockTypes.MATH_ARITHMETIC, "DIVIDE",
+                "A", paramBlock(1L, "left", ParamType.NUMBER),
+                "B", paramBlock(3L, "zero", ParamType.NUMBER));
+        ObjectNode unreachableCondition = compare("GT", divideByZero,
+                paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode conditional = controlsIf(trueCondition,
+                paramBlock(5L, "branch0", ParamType.STRING));
+        addElseIf(conditional, 1, unreachableCondition,
+                paramBlock(6L, "branch1", ParamType.STRING));
+        addElse(conditional, paramBlock(7L, "elseBranch", ParamType.STRING));
+
+        BlocklyRenderResult result = render(conditional, Map.of(
+                "left", objectMapper.valueToTree(10),
+                "right", objectMapper.valueToTree(4),
+                "zero", objectMapper.valueToTree(0),
+                "branch0", objectMapper.valueToTree("DO0"),
+                "branch1", objectMapper.valueToTree("DO1"),
+                "elseBranch", objectMapper.valueToTree("ELSE")
+        ));
+
+        assertThat(result.renderedContent()).isEqualTo("DO0");
+        assertThat(result.usedParams()).containsExactly("left", "right", "branch0");
+        assertThat(result.warnings()).hasSize(3);
+    }
+
+    @Test
+    void shouldRenderElseIfElseAndEmptyControlsIfResults() {
+        ObjectNode falseCondition = compare("LT",
+                paramBlock(1L, "left", ParamType.NUMBER),
+                paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode trueCondition = compare("GT",
+                paramBlock(1L, "left", ParamType.NUMBER),
+                paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode elseIf = controlsIf(falseCondition, textBlock("DO0"));
+        addElseIf(elseIf, 1, trueCondition, textBlock("DO1"));
+        addElse(elseIf, textBlock("ELSE"));
+
+        ObjectNode elseOnly = controlsIf(falseCondition, textBlock("DO0"));
+        addElse(elseOnly, textBlock("ELSE"));
+
+        ObjectNode noElse = controlsIf(falseCondition, textBlock("DO0"));
+
+        Map<String, JsonNode> values = Map.of(
+                "left", objectMapper.valueToTree(10),
+                "right", objectMapper.valueToTree(4)
+        );
+        assertThat(render(elseIf, values).renderedContent()).isEqualTo("DO1");
+        assertThat(render(elseOnly, values).renderedContent()).isEqualTo("ELSE");
+        assertThat(render(noElse, values).renderedContent()).isEmpty();
+    }
+
+    @Test
+    void shouldRenderNestedControlsIf() {
+        ObjectNode outerCondition = compare("GT",
+                paramBlock(1L, "left", ParamType.NUMBER),
+                paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode innerCondition = compare("EQ",
+                paramBlock(1L, "left", ParamType.NUMBER),
+                paramBlock(1L, "left", ParamType.NUMBER));
+        ObjectNode inner = controlsIf(innerCondition, textBlock("INNER"));
+        addElse(inner, textBlock("INNER_ELSE"));
+        ObjectNode outer = controlsIf(outerCondition, inner);
+        addElse(outer, textBlock("OUTER_ELSE"));
+
+        BlocklyRenderResult result = render(outer, Map.of(
+                "left", objectMapper.valueToTree(10),
+                "right", objectMapper.valueToTree(4)
+        ));
+
+        assertThat(result.renderedContent()).isEqualTo("INNER");
+        assertThat(result.usedParams()).containsExactly("left", "right");
+    }
+
+    @Test
+    void shouldRejectInvalidControlsIfStructureAndTypes() {
+        ObjectNode invalidCondition = controlsIf(textBlock("not boolean"), textBlock("DO0"));
+        ObjectNode invalidBranch = controlsIf(
+                compare("EQ",
+                        paramBlock(1L, "left", ParamType.NUMBER),
+                        paramBlock(2L, "right", ParamType.NUMBER)),
+                paramBlock(1L, "left", ParamType.NUMBER));
+        ObjectNode missingIf = objectMapper.createObjectNode();
+        missingIf.put("type", BlocklyBlockTypes.CONTROLS_IF);
+        putInput(missingIf, "DO0", textBlock("DO0"));
+        ObjectNode missingDo = objectMapper.createObjectNode();
+        missingDo.put("type", BlocklyBlockTypes.CONTROLS_IF);
+        putInput(missingDo, "IF0", compare("EQ",
+                paramBlock(1L, "left", ParamType.NUMBER),
+                paramBlock(2L, "right", ParamType.NUMBER)));
+
+        assertThatThrownBy(() -> validate(invalidCondition))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_if 的 IF0 必须返回布尔值");
+        assertThatThrownBy(() -> validate(invalidBranch))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_if 的 DO0 必须返回字符串");
+        assertThatThrownBy(() -> validate(missingIf))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_if 缺少条件输入 IF0");
+        assertThatThrownBy(() -> validate(missingDo))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_if 缺少分支输入 DO0");
+    }
+
+    @Test
+    void shouldRejectControlsIfStateAndInputMismatch() {
+        ObjectNode unexpectedElse = controlsIf(
+                compare("EQ",
+                        paramBlock(1L, "left", ParamType.NUMBER),
+                        paramBlock(2L, "right", ParamType.NUMBER)),
+                textBlock("DO0"));
+        putInput(unexpectedElse, "ELSE", textBlock("ELSE"));
+
+        ObjectNode unexpectedElseIf = controlsIf(
+                compare("EQ",
+                        paramBlock(1L, "left", ParamType.NUMBER),
+                        paramBlock(2L, "right", ParamType.NUMBER)),
+                textBlock("DO0"));
+        putInput(unexpectedElseIf, "IF1", compare("EQ",
+                paramBlock(1L, "left", ParamType.NUMBER),
+                paramBlock(2L, "right", ParamType.NUMBER)));
+        putInput(unexpectedElseIf, "DO1", textBlock("DO1"));
+
+        ObjectNode tooManyBranches = controlsIf(
+                compare("EQ",
+                        paramBlock(1L, "left", ParamType.NUMBER),
+                        paramBlock(2L, "right", ParamType.NUMBER)),
+                textBlock("DO0"));
+        tooManyBranches.putObject("extraState")
+                .put("elseIfCount", 11)
+                .put("hasElse", false);
+
+        assertThatThrownBy(() -> validate(unexpectedElse))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_if 声明了 ELSE 分支但 hasElse 为 false");
+        assertThatThrownBy(() -> validate(unexpectedElseIf))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_if 存在超出 elseIfCount 范围的输入 IF1");
+        assertThatThrownBy(() -> validate(tooManyBranches))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_if 的 elseIfCount 不能超过 10");
+    }
+
+    @Test
+    void shouldRenderStringArrayWithSeparatorAndMultipleLoopItems() {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("type", BlocklyBlockTypes.TEXT_JOIN);
+        putInput(body, "ADD0", paramBlock(10L, "prefix", ParamType.STRING));
+        putInput(body, "ADD1", loopItem(ParamType.STRING));
+        putInput(body, "ADD2", textBlock("="));
+        putInput(body, "ADD3", loopItem(ParamType.STRING));
+        ObjectNode forEach = controlsForEach(
+                paramBlock(8L, "stringItems", ParamType.STRING_ARRAY),
+                body,
+                "，");
+
+        BlocklyRenderResult result = render(forEach, Map.of(
+                "stringItems", objectMapper.valueToTree(List.of("甲", "乙")),
+                "prefix", objectMapper.valueToTree("P")
+        ));
+
+        assertThat(result.renderedContent()).isEqualTo("P甲=甲，P乙=乙");
+        assertThat(result.usedParams()).containsExactly("stringItems", "prefix");
+    }
+
+    @Test
+    void shouldRenderNumberArrayThroughFormatAndControlsIf() {
+        ObjectNode loopNumber = loopItem(ParamType.NUMBER);
+        ObjectNode condition = compare("GT", loopItem(ParamType.NUMBER),
+                paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode formatted = unary(BlocklyBlockTypes.AMOUNT_FORMAT, "VALUE",
+                loopItem(ParamType.NUMBER));
+        ObjectNode branch = controlsIf(condition, formatted);
+        addElse(branch, textBlock("小"));
+        ObjectNode forEach = controlsForEach(
+                paramBlock(9L, "numberItems", ParamType.NUMBER_ARRAY),
+                branch,
+                "|");
+
+        BlocklyRenderResult result = render(forEach, Map.of(
+                "numberItems", objectMapper.valueToTree(List.of(2, 6)),
+                "right", objectMapper.valueToTree(4)
+        ));
+
+        assertThat(loopNumber.path("extraState").path("itemType").asText()).isEqualTo("NUMBER");
+        assertThat(result.renderedContent()).isEqualTo("小|6.00");
+        assertThat(result.usedParams()).containsExactly("numberItems", "right");
+    }
+
+    @Test
+    void shouldReturnEmptyForEmptyArrayAndRejectTooManyItems() {
+        ObjectNode forEach = controlsForEach(
+                paramBlock(8L, "stringItems", ParamType.STRING_ARRAY),
+                loopItem(ParamType.STRING),
+                ",");
+        List<String> tooMany = IntStream.rangeClosed(1, 101)
+                .mapToObj(String::valueOf)
+                .toList();
+
+        assertThat(render(forEach, Map.of(
+                "stringItems", objectMapper.valueToTree(List.of())
+        )).renderedContent()).isEmpty();
+        assertThatThrownBy(() -> render(forEach, Map.of(
+                "stringItems", objectMapper.valueToTree(tooMany)
+        )))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_forEach 的数组元素数量不能超过 100");
+    }
+
+    @Test
+    void shouldRejectInvalidForEachStructureAndContext() {
+        ObjectNode nonArray = controlsForEach(textBlock("not array"),
+                textBlock("body"), "");
+        ObjectNode nonStringBody = controlsForEach(
+                paramBlock(9L, "numberItems", ParamType.NUMBER_ARRAY),
+                loopItem(ParamType.NUMBER),
+                "");
+        ObjectNode mismatch = controlsForEach(
+                paramBlock(8L, "stringItems", ParamType.STRING_ARRAY),
+                loopItem(ParamType.NUMBER),
+                "");
+        ObjectNode nested = controlsForEach(
+                paramBlock(8L, "stringItems", ParamType.STRING_ARRAY),
+                controlsForEach(
+                        paramBlock(8L, "stringItems", ParamType.STRING_ARRAY),
+                        loopItem(ParamType.STRING),
+                        ""),
+                "");
+        ObjectNode missingList = objectMapper.createObjectNode();
+        missingList.put("type", BlocklyBlockTypes.CONTROLS_FOR_EACH);
+        putInput(missingList, "BODY", textBlock("body"));
+        ObjectNode missingBody = objectMapper.createObjectNode();
+        missingBody.put("type", BlocklyBlockTypes.CONTROLS_FOR_EACH);
+        putInput(missingBody, "LIST",
+                paramBlock(8L, "stringItems", ParamType.STRING_ARRAY));
+        ObjectNode longSeparator = controlsForEach(
+                paramBlock(8L, "stringItems", ParamType.STRING_ARRAY),
+                loopItem(ParamType.STRING),
+                "123456789012345678901");
+
+        assertThatThrownBy(() -> validate(loopItem(ParamType.STRING)))
+                .isInstanceOf(BizException.class)
+                .hasMessage("loop_item_value 只能在循环体中使用");
+        assertThatThrownBy(() -> validate(nonArray))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_forEach 的 LIST 必须返回数组");
+        assertThatThrownBy(() -> validate(nonStringBody))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_forEach 的 BODY 必须返回字符串");
+        assertThatThrownBy(() -> validate(mismatch))
+                .isInstanceOf(BizException.class)
+                .hasMessage("loop_item_value 的 itemType 与循环元素类型不一致");
+        assertThatThrownBy(() -> validate(nested))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_forEach 暂不支持嵌套循环");
+        assertThatThrownBy(() -> validate(missingList))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_forEach 缺少输入 LIST");
+        assertThatThrownBy(() -> validate(missingBody))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_forEach 缺少输入 BODY");
+        assertThatThrownBy(() -> validate(longSeparator))
+                .isInstanceOf(BizException.class)
+                .hasMessage("controls_forEach 的 SEPARATOR 长度不能超过 20");
+    }
+
+    private BlocklyRenderResult render(ObjectNode content, Map<String, JsonNode> values) {
+        BlocklyValidationResult validation = validate(content);
+        return actualRenderer.render(validation.getBlocklyJson(), 1L, expressionParams, values);
+    }
+
+    private BlocklyValidationResult validate(ObjectNode content) {
+        return actualValidator.validateWorkspace(1, workspace(content), 1L,
+                expressionParams, BlocklyValidationMode.DRAFT);
+    }
+
+    private Object evaluateExpression(ObjectNode expression,
+                                      Map<String, JsonNode> values) throws Exception {
+        validateBooleanExpression(expression);
+        BlockRenderContext context = new BlockRenderContext(
+                1L, expressionParams, values, new SceneParamValueValidator());
+        Method renderNode = BlocklyRenderer.class.getDeclaredMethod(
+                "renderNode", JsonNode.class, BlockRenderContext.class, boolean.class);
+        renderNode.setAccessible(true);
+        try {
+            Object result = renderNode.invoke(actualRenderer, expression, context, false);
+            Method value = result.getClass().getDeclaredMethod("value");
+            value.setAccessible(true);
+            return value.invoke(result);
+        } catch (InvocationTargetException ex) {
+            if (ex.getCause() instanceof Exception exception) {
+                throw exception;
+            }
+            throw ex;
+        }
+    }
+
+    private void validateBooleanExpression(ObjectNode expression) {
+        assertThatThrownBy(() -> validate(unary(BlocklyBlockTypes.LOGIC_NEGATE, "BOOL", expression)))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("BOOLEAN 结果不能直接输出为模板正文");
+    }
+
+    private ObjectNode workspace(ObjectNode content) {
+        ObjectNode workspace = objectMapper.createObjectNode();
+        ObjectNode blocks = workspace.putObject("blocks");
+        blocks.put("languageVersion", 0);
+        ArrayNode topBlocks = blocks.putArray("blocks");
+        ObjectNode root = topBlocks.addObject();
+        root.put("type", BlocklyBlockTypes.MESSAGE_CONTENT);
+        putInput(root, "CONTENT", content);
+        return workspace;
+    }
+
+    private ObjectNode binary(String type,
+                              String operator,
+                              String leftName,
+                              ObjectNode left,
+                              String rightName,
+                              ObjectNode right) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("type", type);
+        if (operator != null) {
+            block.putObject("fields").put("OP", operator);
+        }
+        putInput(block, leftName, left);
+        putInput(block, rightName, right);
+        return block;
+    }
+
+    private ObjectNode unary(String type, String inputName, ObjectNode input) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("type", type);
+        putInput(block, inputName, input);
+        return block;
+    }
+
+    private ObjectNode compare(String operator, ObjectNode left, ObjectNode right) {
+        return binary(BlocklyBlockTypes.LOGIC_COMPARE, operator, "A", left, "B", right);
+    }
+
+    private ObjectNode controlsIf(ObjectNode condition, ObjectNode branch) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("type", BlocklyBlockTypes.CONTROLS_IF);
+        putInput(block, "IF0", condition);
+        putInput(block, "DO0", branch);
+        return block;
+    }
+
+    private ObjectNode controlsForEach(ObjectNode list,
+                                       ObjectNode body,
+                                       String separator) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("type", BlocklyBlockTypes.CONTROLS_FOR_EACH);
+        if (separator != null) {
+            block.putObject("fields").put("SEPARATOR", separator);
+        }
+        putInput(block, "LIST", list);
+        putInput(block, "BODY", body);
+        return block;
+    }
+
+    private ObjectNode loopItem(ParamType type) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("type", BlocklyBlockTypes.LOOP_ITEM_VALUE);
+        block.putObject("extraState").put("itemType", type.getCode());
+        return block;
+    }
+
+    private void addElseIf(ObjectNode block,
+                           int index,
+                           ObjectNode condition,
+                           ObjectNode branch) {
+        ObjectNode extraState = block.has("extraState")
+                ? (ObjectNode) block.get("extraState")
+                : block.putObject("extraState");
+        extraState.put("elseIfCount", index);
+        extraState.put("hasElse", extraState.path("hasElse").asBoolean(false));
+        putInput(block, "IF" + index, condition);
+        putInput(block, "DO" + index, branch);
+    }
+
+    private void addElse(ObjectNode block, ObjectNode branch) {
+        ObjectNode extraState = block.has("extraState")
+                ? (ObjectNode) block.get("extraState")
+                : block.putObject("extraState");
+        extraState.put("elseIfCount", extraState.path("elseIfCount").asInt(0));
+        extraState.put("hasElse", true);
+        putInput(block, "ELSE", branch);
+    }
+
+    private void putInput(ObjectNode block, String inputName, ObjectNode input) {
+        ObjectNode inputs = block.has("inputs")
+                ? (ObjectNode) block.get("inputs")
+                : block.putObject("inputs");
+        inputs.putObject(inputName).set("block", input);
+    }
+
+    private ObjectNode textBlock(String value) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("type", BlocklyBlockTypes.TEXT);
+        block.putObject("fields").put("TEXT", value);
+        return block;
+    }
+
+    private ObjectNode paramBlock(Long id, String name, ParamType type) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("type", BlocklyBlockTypes.SCENE_PARAM_VALUE);
+        ObjectNode extraState = block.putObject("extraState");
+        extraState.put("sceneId", "1");
+        extraState.put("paramId", id.toString());
+        extraState.put("paramName", name);
+        extraState.put("paramType", type.getCode());
+        return block;
+    }
+
+    private MsgSceneParam param(Long id, String name, ParamType type) {
+        MsgSceneParam param = new MsgSceneParam();
+        param.setId(id);
+        param.setSceneId(1L);
+        param.setParamName(name);
+        param.setParamType(type.getCode());
+        param.setIsRequired(1);
+        return param;
+    }
+
+    private MsgSceneParam optionalParam(Long id, String name, ParamType type) {
+        MsgSceneParam param = param(id, name, type);
+        param.setIsRequired(0);
+        return param;
     }
 }

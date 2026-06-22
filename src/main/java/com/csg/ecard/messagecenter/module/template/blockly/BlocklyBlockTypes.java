@@ -3,7 +3,7 @@ package com.csg.ecard.messagecenter.module.template.blockly;
 import java.util.Set;
 
 /**
- * 模板 Blockly 节点类型定义。
+ * 模板 Blockly 节点类型统一定义。
  */
 public final class BlocklyBlockTypes {
 
@@ -17,25 +17,40 @@ public final class BlocklyBlockTypes {
      */
     public static final String LEGACY_SCENE_PARAM_REF = "scene_param_ref";
 
-    public static final String ARRAY_FOR_EACH = "array_for_each";
-    public static final String CONTAINS = "contains";
-    public static final String FUZZY_MATCH = "fuzzy_match";
     public static final String AMOUNT_FORMAT = "amount_format";
     public static final String TIME_FORMAT = "time_format";
+    public static final String MATH_ARITHMETIC = "math_arithmetic";
+    public static final String MATH_MODULO = "math_modulo";
+    public static final String LOGIC_COMPARE = "logic_compare";
+    public static final String LOGIC_OPERATION = "logic_operation";
+    public static final String LOGIC_NEGATE = "logic_negate";
+    public static final String STRING_CONTAINS = "string_contains";
+    public static final String STRING_LIKE = "string_like";
+    public static final String CONTROLS_IF = "controls_if";
+    public static final String CONTROLS_FOR_EACH = "controls_forEach";
+    public static final String LOOP_ITEM_VALUE = "loop_item_value";
 
-    public static final Set<String> ENABLED_TYPES = Set.of(
+    /**
+     * 保存、预览和启用共同使用的受支持节点集合。
+     */
+    public static final Set<String> SUPPORTED_TYPES = Set.of(
             MESSAGE_CONTENT,
+            TEXT,
+            TEXT_JOIN,
             SCENE_PARAM_VALUE,
             LEGACY_SCENE_PARAM_REF,
-            TEXT, "text_multiline", TEXT_JOIN, "text_append", "text_length", "text_isEmpty",
-            "text_indexOf", "text_charAt", "text_getSubstring", "text_changeCase", "text_trim",
-            "math_number", "math_arithmetic", "math_single", "math_trig", "math_constant",
-            "math_number_property", "math_round", "math_modulo", "math_constrain",
-            "logic_compare", "logic_operation", "logic_negate", "logic_boolean", "logic_null",
-            "logic_ternary", "controls_if", "lists_create_empty", "lists_create_with",
-            "lists_repeat", "lists_length", "lists_isEmpty", "lists_indexOf", "lists_getIndex",
-            "lists_setIndex", "lists_getSublist", "lists_split", "lists_sort",
-            ARRAY_FOR_EACH, CONTAINS, FUZZY_MATCH, AMOUNT_FORMAT, TIME_FORMAT
+            AMOUNT_FORMAT,
+            TIME_FORMAT,
+            MATH_ARITHMETIC,
+            MATH_MODULO,
+            LOGIC_COMPARE,
+            LOGIC_OPERATION,
+            LOGIC_NEGATE,
+            STRING_CONTAINS,
+            STRING_LIKE,
+            CONTROLS_IF,
+            CONTROLS_FOR_EACH,
+            LOOP_ITEM_VALUE
     );
 
     private BlocklyBlockTypes() {
