@@ -262,3 +262,60 @@ ON COLUMN msg_template_unit.create_time IS '创建时间';
 
 CREATE INDEX idx_msg_template_unit_template_id ON msg_template_unit (template_id);
 CREATE INDEX idx_msg_template_unit_unit_id ON msg_template_unit (unit_id);
+
+CREATE TABLE msg_record
+(
+    id              BIGINT                              NOT NULL,
+    msg_id          VARCHAR(64)                         NOT NULL,
+    biz_id          VARCHAR(128),
+    scene_code      VARCHAR(64)                         NOT NULL,
+    template_id     BIGINT                              NOT NULL,
+    channel_id      BIGINT,
+    scene_params    CLOB                                NOT NULL,
+    message_content CLOB,
+    user_id         VARCHAR(128)                        NOT NULL,
+    user_org_id     VARCHAR(128)                        NOT NULL,
+    send_status     VARCHAR(16)                         NOT NULL,
+    error_msg       VARCHAR(1000),
+    send_time       TIMESTAMP,
+    create_by       VARCHAR(64),
+    create_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    update_by       VARCHAR(64),
+    update_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted         INT       DEFAULT 0                 NOT NULL,
+
+    CONSTRAINT pk_msg_record
+        PRIMARY KEY (id),
+
+    CONSTRAINT ck_msg_record_send_status
+        CHECK (send_status IN ('SUCCESS', 'FAILED')),
+
+    CONSTRAINT ck_msg_record_deleted
+        CHECK (deleted IN (0, 1))
+);
+
+COMMENT ON TABLE msg_record IS '消息发送记录表';
+COMMENT ON COLUMN msg_record.id IS '主键ID';
+COMMENT ON COLUMN msg_record.msg_id IS '消息ID，同次推送共用';
+COMMENT ON COLUMN msg_record.biz_id IS '业务幂等ID';
+COMMENT ON COLUMN msg_record.scene_code IS '场景编码';
+COMMENT ON COLUMN msg_record.template_id IS '模板ID';
+COMMENT ON COLUMN msg_record.channel_id IS '渠道ID，未匹配到渠道时为空';
+COMMENT ON COLUMN msg_record.scene_params IS '场景参数JSON';
+COMMENT ON COLUMN msg_record.message_content IS '渲染后的消息正文';
+COMMENT ON COLUMN msg_record.user_id IS '用户ID';
+COMMENT ON COLUMN msg_record.user_org_id IS '用户单位ID';
+COMMENT ON COLUMN msg_record.send_status IS '发送状态：SUCCESS成功，FAILED失败';
+COMMENT ON COLUMN msg_record.error_msg IS '发送失败原因';
+COMMENT ON COLUMN msg_record.send_time IS '最近一次实际发送尝试完成时间';
+COMMENT ON COLUMN msg_record.create_by IS '创建人';
+COMMENT ON COLUMN msg_record.create_time IS '创建时间';
+COMMENT ON COLUMN msg_record.update_by IS '更新人';
+COMMENT ON COLUMN msg_record.update_time IS '更新时间';
+COMMENT ON COLUMN msg_record.deleted IS '逻辑删除标记：0正常，1删除';
+
+CREATE INDEX idx_msg_record_msg_id ON msg_record (msg_id);
+CREATE INDEX idx_msg_record_biz_id ON msg_record (biz_id);
+CREATE INDEX idx_msg_record_scene_code ON msg_record (scene_code);
+CREATE INDEX idx_msg_record_user_id ON msg_record (user_id);
+CREATE INDEX idx_msg_record_send_status ON msg_record (send_status);

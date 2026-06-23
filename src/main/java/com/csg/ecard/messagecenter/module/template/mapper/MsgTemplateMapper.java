@@ -106,6 +106,34 @@ public interface MsgTemplateMapper extends BaseMapper<MsgTemplate> {
     List<MsgTemplate> selectContentTemplatesBySceneId(@Param("sceneId") Long sceneId);
 
     /**
+     * 查询场景下启用、内容有效且适用于指定单位的模板。
+     *
+     * @param sceneId 场景ID
+     * @param unitId  用户单位ID
+     * @return 可用于推送的模板
+     */
+    @Select({
+            "SELECT t.id, t.template_name, t.scene_id, t.channel_type, t.blockly_json,",
+            "t.status, t.create_time, t.update_time",
+            "FROM msg_template t",
+            "WHERE t.scene_id = #{sceneId}",
+            "AND t.deleted = 0",
+            "AND t.status = 1",
+            "AND t.blockly_json IS NOT NULL",
+            "AND LENGTH(TRIM(t.blockly_json)) > 0",
+            "AND (",
+            "  NOT EXISTS (SELECT 1 FROM msg_template_unit tu WHERE tu.template_id = t.id)",
+            "  OR EXISTS (",
+            "    SELECT 1 FROM msg_template_unit tu",
+            "    WHERE tu.template_id = t.id AND tu.unit_id = #{unitId}",
+            "  )",
+            ")",
+            "ORDER BY t.create_time ASC, t.id ASC"
+    })
+    List<MsgTemplate> selectEnabledApplicableTemplates(@Param("sceneId") Long sceneId,
+                                                       @Param("unitId") String unitId);
+
+    /**
      * 查询参考模板候选，场景和单位数量在同一查询中返回。
      *
      * @param query 查询条件
