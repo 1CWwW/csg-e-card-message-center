@@ -1,5 +1,7 @@
 package com.csg.ecard.messagecenter.module.push.mq;
 
+import com.csg.ecard.messagecenter.common.enums.MessageCallType;
+import com.csg.ecard.messagecenter.common.enums.MessagePriority;
 import com.csg.ecard.messagecenter.module.push.dto.SyncPushDTO;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -18,11 +20,15 @@ public class AsyncPushMessage {
 
     private String msgId;
     private SyncPushDTO request;
+    private MessageCallType callType;
+    private MessagePriority priority;
     private int retryCount;
     private List<Long> pendingTemplateIds = new ArrayList<>();
 
-    public AsyncPushMessage(String msgId, SyncPushDTO request) {
+    public AsyncPushMessage(String msgId, SyncPushDTO request, MessageCallType callType) {
         this.msgId = msgId;
         this.request = request;
+        this.callType = callType;
+        this.priority = request.getPriority();
     }
 }

@@ -1,7 +1,11 @@
 package com.csg.ecard.messagecenter.module.push.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.csg.ecard.messagecenter.common.entity.BaseEntity;
+import com.csg.ecard.messagecenter.common.enums.MessageCallType;
+import com.csg.ecard.messagecenter.common.enums.MessagePriority;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -24,7 +28,15 @@ public class MsgRecord extends BaseEntity {
     private String messageContent;
     private String userId;
     private String userOrgId;
+    private MessagePriority priority;
+    private MessageCallType callType;
     private String sendStatus;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String errorMsg;
+
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String errorStack;
+
     private LocalDateTime sendTime;
 }

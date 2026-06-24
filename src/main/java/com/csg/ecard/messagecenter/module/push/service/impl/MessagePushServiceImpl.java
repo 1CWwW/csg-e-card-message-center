@@ -4,14 +4,16 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.csg.ecard.messagecenter.common.enums.ChannelType;
 import com.csg.ecard.messagecenter.common.enums.CommonStatus;
 import com.csg.ecard.messagecenter.common.enums.ErrorCode;
+import com.csg.ecard.messagecenter.common.enums.MessageCallType;
+import com.csg.ecard.messagecenter.common.enums.MessagePriority;
 import com.csg.ecard.messagecenter.common.exception.BizException;
+import com.csg.ecard.messagecenter.common.utils.ExceptionStackTraceUtils;
 import com.csg.ecard.messagecenter.common.utils.MessageIdGenerator;
 import com.csg.ecard.messagecenter.module.channel.entity.MsgChannel;
 import com.csg.ecard.messagecenter.module.channel.service.ChannelMatcher;
 import com.csg.ecard.messagecenter.module.push.dto.SyncPushDTO;
 import com.csg.ecard.messagecenter.module.push.entity.MsgRecord;
 import com.csg.ecard.messagecenter.module.push.enums.AsyncPushStatus;
-import com.csg.ecard.messagecenter.module.push.enums.PushPriority;
 import com.csg.ecard.messagecenter.module.push.enums.PushStatus;
 import com.csg.ecard.messagecenter.module.push.enums.SendStatus;
 import com.csg.ecard.messagecenter.module.push.exception.MessagePushException;
@@ -48,6 +50,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
@@ -103,7 +106,7 @@ public class MessagePushServiceImpl implements MessagePushService {
         }
 
         CoreExecutionResult executed = execute(
-                msgId, request, 0, List.of(), false);
+                msgId, request, MessageCallType.SYNC, 0, List.of(), false);
         if (StringUtils.hasText(request.getBizId())) {
             pushIdempotencyService.saveResult(request.getBizId(), executed.response());
         }
@@ -129,7 +132,13 @@ public class MessagePushServiceImpl implements MessagePushService {
             rabbitTemplate.convertAndSend(
                     MessagePushRabbitConstants.EXCHANGE,
                     MessagePushRabbitConstants.ROUTING_KEY,
-                    new AsyncPushMessage(msgId, request));
+                    new AsyncPushMessage(msgId, request, MessageCallType.ASYNC),
+                    message -> {
+                        message.getMessageProperties()
+                                .setPriority(request.getPriority().getMqPriority());
+                        return message;
+                    });
+            log.info("Async push enqueued. msgId={}, priority={}", msgId, request.getPriority());
             return accepted(msgId);
         } catch (RuntimeException ex) {
             if (StringUtils.hasText(request.getBizId())) {
@@ -143,10 +152,21 @@ public class MessagePushServiceImpl implements MessagePushService {
     @Transactional(rollbackFor = Exception.class)
     public AsyncPushExecutionResult consumeAsync(AsyncPushMessage message) {
         SyncPushDTO request = message.getRequest();
+        MessageCallType callType = requireAsyncCallType(message);
+        MessagePriority priority = message.getPriority();
+        if (priority == null && request.getPriority() != null) {
+            priority = request.getPriority();
+        }
+        if (priority == null) {
+            priority = MessagePriority.NORMAL;
+        }
+        message.setPriority(priority);
+        request.setPriority(priority);
         normalize(request);
         CoreExecutionResult executed = execute(
                 message.getMsgId(),
                 request,
+                callType,
                 message.getRetryCount(),
                 message.getPendingTemplateIds(),
                 true);
@@ -155,9 +175,11 @@ public class MessagePushServiceImpl implements MessagePushService {
 
     private CoreExecutionResult execute(String msgId,
                                         SyncPushDTO request,
+                                        MessageCallType callType,
                                         int retryCount,
                                         List<Long> pendingTemplateIds,
                                         boolean asyncMode) {
+        requireCallType(callType);
         MsgScene scene = requireEnabledScene(request.getSceneCode());
         List<MsgSceneParam> sceneParams = loadSceneParams(scene.getId());
         Map<String, JsonNode> values = validateSceneParams(sceneParams, request.getSceneParams());
@@ -195,7 +217,7 @@ public class MessagePushServiceImpl implements MessagePushService {
             TemplateExecutionResult result = processTemplate(
                     msgId, request, scene, template, paramMap, values,
                     serializedSceneParams, matchedChannels.get(template.getId()),
-                    retryCount, asyncMode);
+                    callType, retryCount, asyncMode);
             if (result.retryRequired()) {
                 retryTemplateIds.add(template.getId());
             } else {
@@ -214,6 +236,7 @@ public class MessagePushServiceImpl implements MessagePushService {
                                                     Map<String, JsonNode> values,
                                                     String serializedSceneParams,
                                                     Optional<MsgChannel> matchedChannel,
+                                                    MessageCallType callType,
                                                     int retryCount,
                                                     boolean asyncMode) {
         ChannelResultVO result = new ChannelResultVO();
@@ -239,7 +262,8 @@ public class MessagePushServiceImpl implements MessagePushService {
         } catch (RuntimeException ex) {
             result.setStatus(SendStatus.FAILED);
             result.setErrorMsg(messageOf(ex));
-            saveOrUpdateRecord(msgId, request, scene, template, channel, serializedSceneParams, result);
+            saveOrUpdateRecord(msgId, request, scene, template, channel,
+                    serializedSceneParams, result, callType, technicalCause(ex));
             return new TemplateExecutionResult(result, false);
         }
 
@@ -247,19 +271,22 @@ public class MessagePushServiceImpl implements MessagePushService {
         try {
             ChannelSendResult sendResult = channelSenderDispatcher.dispatch(
                     template.getChannelType(),
-                    new ChannelSendRequest(channel, request, result.getMessageContent()));
+                    new ChannelSendRequest(
+                            channel, request, result.getMessageContent(), request.getPriority()));
             if (senderConfigured) {
                 result.setSendTime(LocalDateTime.now());
             }
             if (sendResult.success()) {
                 result.setStatus(SendStatus.SUCCESS);
-                saveOrUpdateRecord(msgId, request, scene, template, channel, serializedSceneParams, result);
+                saveOrUpdateRecord(msgId, request, scene, template, channel,
+                        serializedSceneParams, result, callType, null);
                 return new TemplateExecutionResult(result, false);
             }
             result.setStatus(SendStatus.FAILED);
             result.setErrorMsg(sendResult.errorMsg());
             if (shouldRetry(asyncMode, retryCount, sendResult.retryable())) {
-                saveOrUpdateRecord(msgId, request, scene, template, channel, serializedSceneParams, result);
+                saveOrUpdateRecord(msgId, request, scene, template, channel,
+                        serializedSceneParams, result, callType, null);
                 return new TemplateExecutionResult(result, true);
             }
         } catch (RuntimeException ex) {
@@ -269,14 +296,19 @@ public class MessagePushServiceImpl implements MessagePushService {
             result.setStatus(SendStatus.FAILED);
             result.setErrorMsg(messageOf(ex));
             if (shouldRetry(asyncMode, retryCount, true)) {
-                log.warn("Channel send will retry. msgId={}, templateId={}, retryCount={}, cause={}",
-                        msgId, template.getId(), retryCount, ex.getMessage());
-                saveOrUpdateRecord(msgId, request, scene, template, channel, serializedSceneParams, result);
+                log.warn("Channel send will retry. msgId={}, templateId={}, retryCount={}, priority={}, cause={}",
+                        msgId, template.getId(), retryCount, request.getPriority(), ex.getMessage());
+                saveOrUpdateRecord(msgId, request, scene, template, channel,
+                        serializedSceneParams, result, callType, ex);
                 return new TemplateExecutionResult(result, true);
             }
+            saveOrUpdateRecord(msgId, request, scene, template, channel,
+                    serializedSceneParams, result, callType, ex);
+            return new TemplateExecutionResult(result, false);
         }
 
-        saveOrUpdateRecord(msgId, request, scene, template, channel, serializedSceneParams, result);
+        saveOrUpdateRecord(msgId, request, scene, template, channel,
+                serializedSceneParams, result, callType, null);
         return new TemplateExecutionResult(result, false);
     }
 
@@ -292,7 +324,10 @@ public class MessagePushServiceImpl implements MessagePushService {
                                     MsgTemplate template,
                                     MsgChannel channel,
                                     String serializedSceneParams,
-                                    ChannelResultVO result) {
+                                    ChannelResultVO result,
+                                    MessageCallType callType,
+                                    Throwable technicalError) {
+        requireCallType(callType);
         MsgRecord record = msgRecordMapper.selectOne(new LambdaQueryWrapper<MsgRecord>()
                 .eq(MsgRecord::getMsgId, msgId)
                 .eq(MsgRecord::getTemplateId, template.getId())
@@ -310,14 +345,53 @@ public class MessagePushServiceImpl implements MessagePushService {
         record.setMessageContent(result.getMessageContent());
         record.setUserId(request.getUserId());
         record.setUserOrgId(request.getUserOrgId());
+        if (record.getPriority() == null) {
+            record.setPriority(request.getPriority());
+        }
+        if (record.getCallType() == null) {
+            record.setCallType(callType);
+        }
         record.setSendStatus(result.getStatus().name());
         record.setErrorMsg(result.getErrorMsg());
+        record.setErrorStack(ExceptionStackTraceUtils.getStackTrace(technicalError));
         record.setSendTime(result.getSendTime());
-        if (existing) {
-            msgRecordMapper.updateById(record);
-        } else {
-            msgRecordMapper.insert(record);
+        persistRecord(record, existing);
+    }
+
+    private void persistRecord(MsgRecord record, boolean existing) {
+        try {
+            if (existing) {
+                msgRecordMapper.updateById(record);
+            } else {
+                msgRecordMapper.insert(record);
+            }
+        } catch (RuntimeException ex) {
+            if (record.getErrorStack() == null) {
+                throw ex;
+            }
+            record.setErrorStack(null);
+            if (existing) {
+                msgRecordMapper.updateById(record);
+            } else {
+                msgRecordMapper.insert(record);
+            }
         }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void recordAsyncTechnicalFailure(AsyncPushMessage message, Throwable cause) {
+        if (message == null || !StringUtils.hasText(message.getMsgId()) || cause == null) {
+            return;
+        }
+        LocalDateTime completedAt = LocalDateTime.now();
+        msgRecordMapper.update(null, new LambdaUpdateWrapper<MsgRecord>()
+                .eq(MsgRecord::getMsgId, message.getMsgId())
+                .eq(MsgRecord::getDeleted, 0)
+                .set(MsgRecord::getSendStatus, SendStatus.FAILED.name())
+                .set(MsgRecord::getErrorMsg, messageOf(cause))
+                .set(MsgRecord::getErrorStack, ExceptionStackTraceUtils.getStackTrace(cause))
+                .set(MsgRecord::getSendTime, completedAt));
     }
 
     private MsgScene requireEnabledScene(String sceneCode) {
@@ -444,7 +518,7 @@ public class MessagePushServiceImpl implements MessagePushService {
         request.setUserPhone(trimToNull(request.getUserPhone()));
         request.setUserEmail(trimToNull(request.getUserEmail()));
         if (request.getPriority() == null) {
-            request.setPriority(PushPriority.NORMAL);
+            request.setPriority(MessagePriority.NORMAL);
         }
     }
 
@@ -452,8 +526,28 @@ public class MessagePushServiceImpl implements MessagePushService {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
-    private String messageOf(RuntimeException ex) {
+    private String messageOf(Throwable ex) {
         return StringUtils.hasText(ex.getMessage()) ? ex.getMessage() : "渠道发送失败";
+    }
+
+    private Throwable technicalCause(RuntimeException ex) {
+        return ex instanceof BizException || ex instanceof MessagePushException ? null : ex;
+    }
+
+    private void requireCallType(MessageCallType callType) {
+        if (callType == null) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "消息原始调用方式不能为空");
+        }
+    }
+
+    private MessageCallType requireAsyncCallType(AsyncPushMessage message) {
+        if (message == null || message.getCallType() == null) {
+            throw MessagePushException.badRequest("异步消息结构错误：callType不能为空");
+        }
+        if (message.getCallType() != MessageCallType.ASYNC) {
+            throw MessagePushException.badRequest("异步消息结构错误：callType只能为ASYNC");
+        }
+        return message.getCallType();
     }
 
     private record TemplateExecutionResult(ChannelResultVO channelResult, boolean retryRequired) {

@@ -28,4 +28,12 @@ public interface MessagePushService {
      * 执行异步推送消息的一次消费。
      */
     AsyncPushExecutionResult consumeAsync(AsyncPushMessage message);
+
+    /**
+     * 记录异步消费过程中未被单渠道逻辑收敛的技术异常。
+     *
+     * @param message 异步消息
+     * @param cause   技术异常
+     */
+    void recordAsyncTechnicalFailure(AsyncPushMessage message, Throwable cause);
 }

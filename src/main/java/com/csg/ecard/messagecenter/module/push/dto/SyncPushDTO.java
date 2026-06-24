@@ -1,6 +1,6 @@
 package com.csg.ecard.messagecenter.module.push.dto;
 
-import com.csg.ecard.messagecenter.module.push.enums.PushPriority;
+import com.csg.ecard.messagecenter.common.enums.MessagePriority;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -45,8 +45,10 @@ public class SyncPushDTO {
     @Schema(description = "邮箱")
     private String userEmail;
 
-    @Schema(description = "优先级")
-    private PushPriority priority = PushPriority.NORMAL;
+    @Schema(description = "消息业务优先级：HIGH高、NORMAL普通、LOW低；未传时后端默认NORMAL。"
+            + "该字段与渠道匹配使用的渠道优先级无关",
+            allowableValues = {"HIGH", "NORMAL", "LOW"}, defaultValue = "NORMAL")
+    private MessagePriority priority;
 
     @Schema(description = "业务幂等ID")
     private String bizId;

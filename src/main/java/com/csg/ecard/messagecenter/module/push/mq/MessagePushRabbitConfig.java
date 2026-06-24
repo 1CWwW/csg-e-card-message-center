@@ -21,7 +21,9 @@ public class MessagePushRabbitConfig {
 
     @Bean
     public Queue messagePushQueue() {
-        return QueueBuilder.durable(MessagePushRabbitConstants.QUEUE).build();
+        return QueueBuilder.durable(MessagePushRabbitConstants.QUEUE)
+                .maxPriority(MessagePushRabbitConstants.MAX_QUEUE_PRIORITY)
+                .build();
     }
 
     @Bean

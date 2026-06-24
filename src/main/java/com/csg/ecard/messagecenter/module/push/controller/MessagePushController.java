@@ -34,7 +34,9 @@ public class MessagePushController {
     private final MessagePushService messagePushService;
 
     @PostMapping("/sync")
-    @Operation(summary = "同步推送消息")
+    @Operation(summary = "同步推送消息",
+            description = "priority为消息业务优先级，可选HIGH、NORMAL、LOW，未传默认NORMAL；"
+                    + "它不等于渠道匹配优先级，同步推送不经过RabbitMQ")
     public ApiResult<SyncPushVO> pushSync(@RequestBody @Valid SyncPushDTO request) {
         try {
             return ApiResult.success(messagePushService.pushSync(request));
@@ -50,7 +52,10 @@ public class MessagePushController {
     }
 
     @PostMapping("/async")
-    @Operation(summary = "异步推送消息")
+    @Operation(summary = "异步推送消息",
+            description = "priority为消息业务优先级，可选HIGH、NORMAL、LOW，未传默认NORMAL；"
+                    + "异步推送会映射为RabbitMQ主队列优先级，但不会抢占已经开始处理的消息；"
+                    + "自动重试保持原优先级，且priority不参与渠道匹配")
     public ApiResult<AsyncPushVO> pushAsync(@RequestBody @Valid SyncPushDTO request) {
         try {
             return ApiResult.success(messagePushService.pushAsync(request));
