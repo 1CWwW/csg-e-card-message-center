@@ -1,4 +1,16 @@
 spring:
+  cloud:
+    consul:
+      enabled: ${CONSUL_ENABLED:false}
+      host: ${CONSUL_HOST:127.0.0.1}
+      port: ${CONSUL_PORT:8500}
+      discovery:
+        enabled: ${CONSUL_DISCOVERY_ENABLED:false}
+        register: ${CONSUL_REGISTER:false}
+        service-name: ${spring.application.name}
+        health-check-path: ${server.servlet.context-path}/actuator/health
+        health-check-interval: 10s
+        register-health-check: false
   datasource:
     driver-class-name: dm.jdbc.driver.DmDriver
     url: ${DM_URL:jdbc:dm://127.0.0.1:5236?schema=${DM_SCHEMA:CSG_ECARD_MESSAGE_CENTER}}
