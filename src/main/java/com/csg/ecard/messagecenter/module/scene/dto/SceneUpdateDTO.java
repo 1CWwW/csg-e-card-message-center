@@ -16,6 +16,11 @@ import lombok.Setter;
 @Schema(description = "编辑场景请求")
 public class SceneUpdateDTO {
 
+    @NotBlank(message = "场景编码不能为空")
+    @Size(max = MessageCenterConstants.SCENE_CODE_MAX_LENGTH, message = "场景编码长度不能超过64")
+    @Schema(description = "场景编码", example = "CANTEEN_CONSUME_SUCCESS")
+    private String sceneCode;
+
     @NotBlank(message = "场景名称不能为空")
     @Size(max = MessageCenterConstants.SCENE_NAME_MAX_LENGTH, message = "场景名称长度不能超过50")
     @Schema(description = "场景名称", example = "食堂消费成功")

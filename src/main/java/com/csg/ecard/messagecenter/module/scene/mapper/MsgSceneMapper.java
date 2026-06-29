@@ -40,4 +40,13 @@ public interface MsgSceneMapper extends BaseMapper<MsgScene> {
      */
     @Select("SELECT COUNT(1) FROM msg_template WHERE scene_id = #{sceneId} AND deleted = 0")
     Long selectTemplateCountBySceneId(@Param("sceneId") Long sceneId);
+
+    /**
+     * 统计指定场景下未删除且启用的模板数量。
+     *
+     * @param sceneId 场景ID
+     * @return 启用模板数量
+     */
+    @Select("SELECT COUNT(1) FROM msg_template WHERE scene_id = #{sceneId} AND status = 1 AND deleted = 0")
+    Long selectEnabledTemplateCountBySceneId(@Param("sceneId") Long sceneId);
 }

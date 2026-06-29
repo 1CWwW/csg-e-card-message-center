@@ -13,12 +13,13 @@ import java.util.regex.Pattern;
  */
 public final class MessageCenterValidator {
 
-    private static final Pattern SCENE_CODE_PATTERN = Pattern.compile("^[A-Z][A-Z0-9_]*$");
+    private static final Pattern SCENE_CODE_PATTERN = Pattern.compile("^[A-Z][A-Z0-9_]{0,63}$");
     private static final Pattern PARAM_NAME_PATTERN = Pattern.compile("^[A-Za-z][A-Za-z0-9]*$");
     private static final Set<String> PARAM_NAME_RESERVED_WORDS = Set.of(
             "true", "false", "null", "undefined", "if", "else",
             "for", "while", "return", "function", "var", "let", "const",
-            "break", "continue"
+            "new", "this", "class", "switch", "case", "break", "continue",
+            "try", "catch", "finally", "throw", "async", "await"
     );
 
     private MessageCenterValidator() {
@@ -94,7 +95,7 @@ public final class MessageCenterValidator {
 
     public static void requireValidSceneCode(String sceneCode) {
         if (!isValidSceneCode(sceneCode)) {
-            throw new BizException(ErrorCode.SCENE_CODE_INVALID);
+            throw new BizException(ErrorCode.PARAM_ERROR, "场景编码格式不正确");
         }
     }
 

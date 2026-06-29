@@ -6,6 +6,7 @@ import com.csg.ecard.messagecenter.module.scene.dto.ScenePageQueryDTO;
 import com.csg.ecard.messagecenter.module.scene.dto.SceneUpdateDTO;
 import com.csg.ecard.messagecenter.module.scene.vo.MsgSceneVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneCodeCheckVO;
+import com.csg.ecard.messagecenter.module.scene.vo.SceneDisableCheckVO;
 
 /**
  * 场景管理服务。
@@ -29,12 +30,20 @@ public interface MsgSceneService {
     MsgSceneVO detail(Long id);
 
     /**
+     * 检查场景停用影响。
+     *
+     * @param id 场景ID
+     * @return 停用检查结果
+     */
+    SceneDisableCheckVO disableCheck(Long id);
+
+    /**
      * 检查场景编码是否可用。
      *
      * @param sceneCode 场景编码
      * @return 编码可用性
      */
-    SceneCodeCheckVO checkCode(String sceneCode);
+    SceneCodeCheckVO checkCode(String sceneCode, Long excludeId);
 
     /**
      * 新增场景。

@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -67,7 +68,11 @@ public class BlocklyJsonValidator {
         }
         validateContentSize(blocklyJson);
         try {
-            return validateRoot(objectMapper.readTree(blocklyJson), sceneId, params, mode);
+            JsonNode root = objectMapper.readTree(blocklyJson);
+            if (isBlocklyContentEmpty(root) && mode == BlocklyValidationMode.DRAFT) {
+                return emptyResult(root);
+            }
+            return validateRoot(root, sceneId, params, mode);
         } catch (JsonProcessingException ex) {
             throw new BizException(ErrorCode.PARAM_ERROR, "模板 Blockly JSON 无法解析");
         }
@@ -100,6 +105,56 @@ public class BlocklyJsonValidator {
         }
     }
 
+    /**
+     * 按 Blockly Workspace 结构判断模板内容是否为空。
+     */
+    public boolean isBlocklyContentEmpty(String blocklyJson) {
+        if (!StringUtils.hasText(blocklyJson)) {
+            return true;
+        }
+        validateContentSize(blocklyJson);
+        try {
+            return isBlocklyContentEmpty(objectMapper.readTree(blocklyJson));
+        } catch (JsonProcessingException ex) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "模板 Blockly JSON 无法解析");
+        }
+    }
+
+    /**
+     * 按 Blockly Workspace 结构判断模板内容是否为空。
+     */
+    public boolean isBlocklyContentEmpty(JsonNode root) {
+        if (root == null || root.isNull() || !root.isObject()) {
+            return true;
+        }
+        JsonNode topBlocks = root.path("workspace").path("blocks").path("blocks");
+        if (!topBlocks.isArray() || topBlocks.isEmpty()) {
+            return true;
+        }
+        if (topBlocks.size() != 1
+                || !BlocklyBlockTypes.MESSAGE_CONTENT.equals(text(topBlocks.get(0).get("type")))) {
+            return false;
+        }
+        return optionalInputBlock(topBlocks.get(0), CONTENT_INPUT) == null;
+    }
+
+    /**
+     * 递归提取 Workspace 中全部场景参数积木引用次数。
+     */
+    public Map<Long, Long> extractReferencedParamCounts(String blocklyJson) {
+        if (!StringUtils.hasText(blocklyJson)) {
+            return Collections.emptyMap();
+        }
+        validateContentSize(blocklyJson);
+        try {
+            Map<Long, Long> result = new LinkedHashMap<>();
+            collectParamCounts(objectMapper.readTree(blocklyJson), result);
+            return result;
+        } catch (JsonProcessingException ex) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "模板 Blockly JSON 无法解析");
+        }
+    }
+
     private BlocklyValidationResult validateRoot(JsonNode root,
                                                   Long sceneId,
                                                   Map<Long, MsgSceneParam> params,
@@ -115,10 +170,16 @@ public class BlocklyJsonValidator {
 
         JsonNode workspace = root.get("workspace");
         if (workspace == null || !workspace.isObject()) {
+            if (mode == BlocklyValidationMode.DRAFT) {
+                return emptyResult(root);
+            }
             throw new BizException(ErrorCode.PARAM_ERROR, "workspace 不能为空且必须为对象");
         }
         JsonNode blocksContainer = workspace.get("blocks");
         if (blocksContainer == null || !blocksContainer.isObject()) {
+            if (mode == BlocklyValidationMode.DRAFT) {
+                return emptyResult(root);
+            }
             throw new BizException(ErrorCode.PARAM_ERROR, "workspace.blocks 不能为空且必须为对象");
         }
         JsonNode languageVersion = blocksContainer.get("languageVersion");
@@ -128,6 +189,9 @@ public class BlocklyJsonValidator {
         }
         JsonNode topBlocks = blocksContainer.get("blocks");
         if (topBlocks == null || !topBlocks.isArray()) {
+            if (mode == BlocklyValidationMode.DRAFT) {
+                return emptyResult(root);
+            }
             throw new BizException(ErrorCode.PARAM_ERROR, "workspace.blocks.blocks 不能为空且必须为数组");
         }
 
@@ -141,19 +205,25 @@ public class BlocklyJsonValidator {
                 hasContent,
                 hasContent,
                 Collections.emptyList(),
-                Set.copyOf(context.referencedParamIds));
+                Set.copyOf(context.referencedParamIds),
+                Map.copyOf(context.referencedParamCounts));
     }
 
     private boolean validateTopBlocks(JsonNode topBlocks, ValidationContext context) {
         if (topBlocks.isEmpty()) {
             return false;
         }
-        if (topBlocks.size() != 1
-                || !BlocklyBlockTypes.MESSAGE_CONTENT.equals(text(topBlocks.get(0).get("type")))) {
+        List<JsonNode> contentRoots = topBlocks.findValues("type").isEmpty()
+                ? Collections.emptyList()
+                : findTopContentRoots(topBlocks);
+        if (contentRoots.isEmpty()) {
+            return false;
+        }
+        if (contentRoots.size() != 1) {
             throw new BizException(ErrorCode.PARAM_ERROR,
                     "模板必须且只能存在一个 message_content 根节点");
         }
-        JsonNode root = topBlocks.get(0);
+        JsonNode root = contentRoots.get(0);
         countNode(root, 1, context);
         JsonNode content = optionalInputBlock(root, CONTENT_INPUT);
         if (content == null) {
@@ -162,6 +232,57 @@ public class BlocklyJsonValidator {
         BlocklyValueType type = validateNode(content, 2, context);
         requireTextOutput(type, content.path("type").asText());
         return true;
+    }
+
+    private List<JsonNode> findTopContentRoots(JsonNode topBlocks) {
+        List<JsonNode> roots = new java.util.ArrayList<>();
+        for (JsonNode topBlock : topBlocks) {
+            if (BlocklyBlockTypes.MESSAGE_CONTENT.equals(text(topBlock.get("type")))) {
+                roots.add(topBlock);
+            }
+        }
+        return roots;
+    }
+
+    private BlocklyValidationResult emptyResult(JsonNode root) {
+        return new BlocklyValidationResult(root == null ? objectMapper.nullNode() : root.deepCopy(),
+                false,
+                false,
+                Collections.emptyList(),
+                Collections.emptySet(),
+                Collections.emptyMap());
+    }
+
+    private void collectParamCounts(JsonNode node, Map<Long, Long> result) {
+        if (node == null || node.isNull()) {
+            return;
+        }
+        if (node.isObject()) {
+            String blockType = text(node.get("type"));
+            if (BlocklyBlockTypes.isSceneParamType(blockType)) {
+                JsonNode extraState = node.get("extraState");
+                String paramIdText = extraState == null ? null : text(extraState.get("paramId"));
+                if (StringUtils.hasText(paramIdText)) {
+                    try {
+                        result.merge(Long.valueOf(paramIdText), 1L, Long::sum);
+                    } catch (NumberFormatException ex) {
+                        throw new BizException(ErrorCode.PARAM_ERROR,
+                                blockType + " 的 paramId 必须为有效 ID 字符串");
+                    }
+                }
+            }
+            Iterator<JsonNode> elements = node.elements();
+            while (elements.hasNext()) {
+                collectParamCounts(elements.next(), result);
+            }
+            return;
+        }
+        if (node.isArray()) {
+            Iterator<JsonNode> elements = node.elements();
+            while (elements.hasNext()) {
+                collectParamCounts(elements.next(), result);
+            }
+        }
     }
 
     private BlocklyValueType validateNode(JsonNode block, int depth, ValidationContext context) {
@@ -556,11 +677,8 @@ public class BlocklyJsonValidator {
             throw new BizException(ErrorCode.PARAM_ERROR,
                     blockType + " 参数类型已变更，当前类型为 " + param.getParamType());
         }
-        if (BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF.equals(blockType)
-                && block instanceof ObjectNode objectBlock) {
-            objectBlock.put("type", BlocklyBlockTypes.SCENE_PARAM_VALUE);
-        }
         context.referencedParamIds.add(paramId);
+        context.referencedParamCounts.merge(paramId, 1L, Long::sum);
         try {
             return BlocklyValueType.fromParamType(paramType);
         } catch (IllegalArgumentException ex) {
@@ -738,6 +856,7 @@ public class BlocklyJsonValidator {
         private final Long sceneId;
         private final Map<Long, MsgSceneParam> params;
         private final Set<Long> referencedParamIds = new HashSet<>();
+        private final Map<Long, Long> referencedParamCounts = new LinkedHashMap<>();
         private BlocklyValueType loopItemType;
         private int blockCount;
 

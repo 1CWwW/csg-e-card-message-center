@@ -8,6 +8,7 @@ import com.csg.ecard.messagecenter.module.scene.dto.SceneUpdateDTO;
 import com.csg.ecard.messagecenter.module.scene.service.MsgSceneService;
 import com.csg.ecard.messagecenter.module.scene.vo.MsgSceneVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneCodeCheckVO;
+import com.csg.ecard.messagecenter.module.scene.vo.SceneDisableCheckVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -62,6 +63,18 @@ public class MsgSceneController {
     }
 
     /**
+     * 场景停用检查。
+     *
+     * @param id 场景ID
+     * @return 停用检查结果
+     */
+    @GetMapping("/{id}/disable-check")
+    @Operation(summary = "场景停用检查")
+    public ApiResult<SceneDisableCheckVO> disableCheck(@PathVariable Long id) {
+        return ApiResult.success(msgSceneService.disableCheck(id));
+    }
+
+    /**
      * 检查场景编码是否可用。
      *
      * @param sceneCode 场景编码
@@ -69,8 +82,10 @@ public class MsgSceneController {
      */
     @GetMapping("/check-code")
     @Operation(summary = "场景编码可用性检查")
-    public ApiResult<SceneCodeCheckVO> checkCode(@RequestParam @NotBlank(message = "场景编码不能为空") String sceneCode) {
-        return ApiResult.success(msgSceneService.checkCode(sceneCode));
+    public ApiResult<SceneCodeCheckVO> checkCode(
+            @RequestParam @NotBlank(message = "场景编码不能为空") String sceneCode,
+            @RequestParam(required = false) Long excludeId) {
+        return ApiResult.success(msgSceneService.checkCode(sceneCode, excludeId));
     }
 
     /**

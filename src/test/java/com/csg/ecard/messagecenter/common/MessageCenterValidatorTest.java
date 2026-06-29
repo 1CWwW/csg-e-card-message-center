@@ -27,21 +27,16 @@ class MessageCenterValidatorTest {
 
     @Test
     void shouldRejectReservedParamName() {
-        assertThat(MessageCenterValidator.isReservedParamName("true")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("false")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("null")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("undefined")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("if")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("else")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("for")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("while")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("return")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("function")).isTrue();
+        for (String reservedWord : new String[]{
+                "true", "false", "null", "undefined", "if", "else",
+                "for", "while", "return", "function", "var", "let", "const",
+                "new", "this", "class", "switch", "case", "break", "continue",
+                "try", "catch", "finally", "throw", "async", "await"
+        }) {
+            assertThat(MessageCenterValidator.isReservedParamName(reservedWord)).isTrue();
+            assertThat(MessageCenterValidator.isValidParamName(reservedWord)).isFalse();
+        }
         assertThat(MessageCenterValidator.isReservedParamName("VAR")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("let")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("const")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("break")).isTrue();
-        assertThat(MessageCenterValidator.isReservedParamName("continue")).isTrue();
         assertThat(MessageCenterValidator.isValidParamName("return")).isFalse();
         assertThat(MessageCenterValidator.isValidParamName("function")).isFalse();
     }

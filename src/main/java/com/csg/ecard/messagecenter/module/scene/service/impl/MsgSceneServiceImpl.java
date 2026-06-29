@@ -21,6 +21,7 @@ import com.csg.ecard.messagecenter.module.scene.mapper.SceneTemplateCountResult;
 import com.csg.ecard.messagecenter.module.scene.service.MsgSceneService;
 import com.csg.ecard.messagecenter.module.scene.vo.MsgSceneVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneCodeCheckVO;
+import com.csg.ecard.messagecenter.module.scene.vo.SceneDisableCheckVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,9 @@ public class MsgSceneServiceImpl implements MsgSceneService {
 
     private static final String SCENE_NOT_FOUND_MESSAGE = "场景不存在";
     private static final String SCENE_CODE_DUPLICATE_MESSAGE = "场景编码已存在";
+    private static final String SORT_FIELD_CREATE_TIME = "createTime";
+    private static final String SORT_ORDER_ASC = "asc";
+    private static final String SORT_ORDER_DESC = "desc";
     private final MsgSceneMapper msgSceneMapper;
     private final MsgSceneParamMapper msgSceneParamMapper;
 
@@ -56,8 +60,8 @@ public class MsgSceneServiceImpl implements MsgSceneService {
                 .eq(StringUtils.hasText(normalizedQuery.getSceneCode()), MsgScene::getSceneCode, normalizedQuery.getSceneCode())
                 .like(StringUtils.hasText(normalizedQuery.getSceneName()), MsgScene::getSceneName, normalizedQuery.getSceneName())
                 .eq(StringUtils.hasText(normalizedQuery.getModule()), MsgScene::getModule, normalizedQuery.getModule())
-                .eq(normalizedQuery.getStatus() != null, MsgScene::getStatus, normalizedQuery.getStatus())
-                .orderByDesc(MsgScene::getCreateTime);
+                .eq(normalizedQuery.getStatus() != null, MsgScene::getStatus, normalizedQuery.getStatus());
+        applyPageSort(wrapper, normalizedQuery);
 
         Page<MsgScene> result = msgSceneMapper.selectPage(page, wrapper);
         Map<Long, Long> paramCountMap = countParamsBySceneIds(result.getRecords().stream()
@@ -81,27 +85,38 @@ public class MsgSceneServiceImpl implements MsgSceneService {
     }
 
     @Override
-    public SceneCodeCheckVO checkCode(String sceneCode) {
-        MessageCenterValidator.requireValidSceneCode(sceneCode);
-        return new SceneCodeCheckVO(sceneCode, !existsSceneCode(sceneCode));
+    public SceneDisableCheckVO disableCheck(Long id) {
+        MsgScene scene = requireScene(id);
+        return new SceneDisableCheckVO(countEnabledTemplatesBySceneId(scene.getId()));
+    }
+
+    @Override
+    public SceneCodeCheckVO checkCode(String sceneCode, Long excludeId) {
+        String normalizedSceneCode = normalizeSceneCode(sceneCode);
+        MessageCenterValidator.requireValidSceneCode(normalizedSceneCode);
+        return new SceneCodeCheckVO(normalizedSceneCode, !existsSceneCode(normalizedSceneCode, excludeId));
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public MsgSceneVO create(SceneCreateDTO request) {
-        MessageCenterValidator.requireValidSceneCode(request.getSceneCode());
-        validateSceneName(request.getSceneName());
-        validateModule(request.getModule());
-        MessageCenterValidator.requireValidDescription(request.getDescription());
-        if (existsSceneCode(request.getSceneCode())) {
+        String sceneCode = normalizeSceneCode(request.getSceneCode());
+        String sceneName = normalizeSceneName(request.getSceneName());
+        String module = normalizeModule(request.getModule());
+        String description = normalizeDescription(request.getDescription());
+        MessageCenterValidator.requireValidSceneCode(sceneCode);
+        validateSceneName(sceneName);
+        validateModule(module);
+        MessageCenterValidator.requireValidDescription(description);
+        if (existsSceneCode(sceneCode, null)) {
             throw new BizException(ErrorCode.DATA_DUPLICATE, SCENE_CODE_DUPLICATE_MESSAGE);
         }
 
         MsgScene scene = new MsgScene();
-        scene.setSceneCode(request.getSceneCode());
-        scene.setSceneName(request.getSceneName());
-        scene.setModule(request.getModule());
-        scene.setDescription(request.getDescription());
+        scene.setSceneCode(sceneCode);
+        scene.setSceneName(sceneName);
+        scene.setModule(module);
+        scene.setDescription(description);
         scene.setStatus(resolveCreateStatus(request.getStatus()));
         insertScene(scene);
         return toVO(scene, 0L, 0L);
@@ -111,18 +126,27 @@ public class MsgSceneServiceImpl implements MsgSceneService {
     @Transactional(rollbackFor = Exception.class)
     public MsgSceneVO update(Long id, SceneUpdateDTO request) {
         requireScene(id);
-        validateSceneName(request.getSceneName());
-        validateModule(request.getModule());
+        String sceneCode = normalizeSceneCode(request.getSceneCode());
+        String sceneName = normalizeSceneName(request.getSceneName());
+        String module = normalizeModule(request.getModule());
+        String description = normalizeDescription(request.getDescription());
+        MessageCenterValidator.requireValidSceneCode(sceneCode);
+        validateSceneName(sceneName);
+        validateModule(module);
         validateStatus(request.getStatus());
-        MessageCenterValidator.requireValidDescription(request.getDescription());
+        MessageCenterValidator.requireValidDescription(description);
+        if (existsSceneCode(sceneCode, id)) {
+            throw new BizException(ErrorCode.DATA_DUPLICATE, SCENE_CODE_DUPLICATE_MESSAGE);
+        }
 
         MsgScene scene = new MsgScene();
         scene.setId(id);
-        scene.setSceneName(request.getSceneName());
-        scene.setModule(request.getModule());
-        scene.setDescription(request.getDescription());
+        scene.setSceneCode(sceneCode);
+        scene.setSceneName(sceneName);
+        scene.setModule(module);
+        scene.setDescription(description);
         scene.setStatus(request.getStatus());
-        msgSceneMapper.updateById(scene);
+        updateScene(scene);
         return detail(id);
     }
 
@@ -164,6 +188,14 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         }
     }
 
+    private void updateScene(MsgScene scene) {
+        try {
+            msgSceneMapper.updateById(scene);
+        } catch (DuplicateKeyException ex) {
+            throw new BizException(ErrorCode.DATA_DUPLICATE, SCENE_CODE_DUPLICATE_MESSAGE);
+        }
+    }
+
     private MsgScene requireScene(Long id) {
         MsgScene scene = msgSceneMapper.selectById(id);
         if (scene == null) {
@@ -172,9 +204,10 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         return scene;
     }
 
-    private boolean existsSceneCode(String sceneCode) {
+    private boolean existsSceneCode(String sceneCode, Long excludeId) {
         Long count = msgSceneMapper.selectCount(new LambdaQueryWrapper<MsgScene>()
-                .eq(MsgScene::getSceneCode, sceneCode));
+                .eq(MsgScene::getSceneCode, sceneCode)
+                .ne(excludeId != null, MsgScene::getId, excludeId));
         return count != null && count > 0;
     }
 
@@ -218,6 +251,25 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         }
     }
 
+    private String normalizeSceneCode(String sceneCode) {
+        return sceneCode == null ? null : sceneCode.trim();
+    }
+
+    private String normalizeSceneName(String sceneName) {
+        return sceneName == null ? null : sceneName.trim();
+    }
+
+    private String normalizeModule(String module) {
+        return module == null ? null : module.trim();
+    }
+
+    private String normalizeDescription(String description) {
+        if (!StringUtils.hasText(description)) {
+            return null;
+        }
+        return description.trim();
+    }
+
     private void validatePageQuery(ScenePageQueryDTO query) {
         if (query == null || query.getPageNum() == null || query.getPageNum() < 1) {
             throw new BizException(ErrorCode.PARAM_ERROR, "pageNum不能为空且必须从1开始");
@@ -225,6 +277,32 @@ public class MsgSceneServiceImpl implements MsgSceneService {
         if (query.getPageSize() == null || query.getPageSize() < 1 || query.getPageSize() > 100) {
             throw new BizException(ErrorCode.PARAM_ERROR, "pageSize不能为空且不能超过100");
         }
+        validatePageSort(query);
+    }
+
+    private void validatePageSort(ScenePageQueryDTO query) {
+        boolean hasSortField = StringUtils.hasText(query.getSortField());
+        boolean hasSortOrder = StringUtils.hasText(query.getSortOrder());
+        if (!hasSortField && !hasSortOrder) {
+            return;
+        }
+        if (!SORT_FIELD_CREATE_TIME.equals(query.getSortField())) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "排序字段不合法");
+        }
+        if (!SORT_ORDER_ASC.equals(query.getSortOrder())
+                && !SORT_ORDER_DESC.equals(query.getSortOrder())) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "排序方向不合法");
+        }
+    }
+
+    private void applyPageSort(LambdaQueryWrapper<MsgScene> wrapper, ScenePageQueryDTO query) {
+        if (SORT_ORDER_ASC.equals(query.getSortOrder())) {
+            wrapper.orderByAsc(MsgScene::getCreateTime)
+                    .orderByAsc(MsgScene::getId);
+            return;
+        }
+        wrapper.orderByDesc(MsgScene::getCreateTime)
+                .orderByDesc(MsgScene::getId);
     }
 
     private Integer resolveCreateStatus(Integer status) {
@@ -276,6 +354,14 @@ public class MsgSceneServiceImpl implements MsgSceneService {
             return 0L;
         }
         Long count = msgSceneMapper.selectTemplateCountBySceneId(sceneId);
+        return count == null ? 0L : count;
+    }
+
+    private Long countEnabledTemplatesBySceneId(Long sceneId) {
+        if (sceneId == null) {
+            return 0L;
+        }
+        Long count = msgSceneMapper.selectEnabledTemplateCountBySceneId(sceneId);
         return count == null ? 0L : count;
     }
 

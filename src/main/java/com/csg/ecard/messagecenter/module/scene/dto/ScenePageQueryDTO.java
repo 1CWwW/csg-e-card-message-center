@@ -37,4 +37,10 @@ public class ScenePageQueryDTO {
 
     @Schema(description = "启用状态，1启用，0停用")
     private Integer status;
+
+    @Schema(description = "排序字段，目前仅支持 createTime")
+    private String sortField;
+
+    @Schema(description = "排序方向，asc 或 desc")
+    private String sortOrder;
 }

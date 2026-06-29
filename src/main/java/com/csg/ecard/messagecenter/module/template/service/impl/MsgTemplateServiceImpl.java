@@ -137,6 +137,9 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         MsgTemplate existed = requireTemplate(id);
         validateTemplateName(request.getTemplateName());
         ChannelType channelType = requireChannelType(request.getChannelType());
+        if (!Objects.equals(existed.getChannelType(), channelType.getCode())) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "编辑模板时不允许修改渠道类型");
+        }
         validateStatus(request.getStatus());
         ensureTemplateNameUnique(existed.getSceneId(), request.getTemplateName(), id);
         if (CommonStatus.DISABLE.getCode().equals(existed.getStatus())
@@ -190,10 +193,6 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
     public TemplateCopyVO copy(Long id, TemplateCopyDTO request) {
         MsgTemplate source = requireTemplate(id);
         validateTemplateName(request.getTemplateName());
-        if (Boolean.TRUE.equals(request.getCopyContent())
-                && !Objects.equals(source.getSceneId(), request.getSceneId())) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "复制模板内容时目标场景必须与源模板场景相同");
-        }
         MsgScene targetScene = requireScene(request.getSceneId(), true);
         ensureTemplateNameUnique(targetScene.getId(), request.getTemplateName(), null);
         List<String> unitIds = normalizeUnitIds(request.getUnitIds());
@@ -203,12 +202,7 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         copied.setSceneId(targetScene.getId());
         copied.setChannelType(source.getChannelType());
         if (Boolean.TRUE.equals(request.getCopyContent())) {
-            BlocklyValidationResult validation = blocklyJsonValidator.validateStored(
-                    source.getBlocklyJson(),
-                    source.getSceneId(),
-                    loadSceneParamMap(source.getSceneId()),
-                    BlocklyValidationMode.DRAFT);
-            copied.setBlocklyJson(blocklyJsonValidator.write(validation.getBlocklyJson().deepCopy()));
+            copied.setBlocklyJson(source.getBlocklyJson());
         } else {
             copied.setBlocklyJson(null);
         }
@@ -222,6 +216,7 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public TemplateContentVO saveContent(Long id, TemplateContentSaveDTO request) {
         MsgTemplate template = requireTemplate(id);
+        requireScene(template.getSceneId(), false);
         BlocklyValidationResult validation = blocklyJsonValidator.validateWorkspace(
                 request.getSchemaVersion(),
                 request.getWorkspace(),
@@ -237,13 +232,17 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         if (changed && CommonStatus.ENABLE.getCode().equals(template.getStatus())) {
             update.setStatus(CommonStatus.DISABLE.getCode());
         }
-        msgTemplateMapper.updateById(update);
+        int updated = msgTemplateMapper.updateById(update);
+        if (updated == 0) {
+            throw new BizException(ErrorCode.STATUS_NOT_ALLOWED, "模板内容更新失败，请刷新后重试");
+        }
 
         MsgTemplate saved = requireTemplate(id);
+        JsonNode savedBlocklyJson = blocklyJsonValidator.readNullable(saved.getBlocklyJson());
         TemplateContentVO vo = new TemplateContentVO();
         vo.setTemplateId(saved.getId());
-        vo.setBlocklyJson(validation.getBlocklyJson());
-        vo.setHasContent(validation.isHasContent());
+        vo.setBlocklyJson(savedBlocklyJson);
+        vo.setHasContent(hasContent(saved.getBlocklyJson()));
         vo.setValid(validation.isValid());
         vo.setErrors(validation.getErrors());
         vo.setUpdatedAt(saved.getUpdateTime());
@@ -258,6 +257,7 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
 
         MsgTemplate template = requireTemplate(parseTemplateId(request.getTemplateId()));
         Long sceneId = template.getSceneId();
+        requireScene(sceneId, false);
         String channelType = requireChannelType(template.getChannelType()).getCode();
         Map<Long, MsgSceneParam> params = loadSceneParamMap(sceneId);
 
@@ -480,10 +480,18 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
     }
 
     private boolean hasContent(String blocklyJson) {
-        return StringUtils.hasText(blocklyJson);
+        if (!StringUtils.hasText(blocklyJson)) {
+            return false;
+        }
+        try {
+            return !blocklyJsonValidator.isBlocklyContentEmpty(blocklyJson);
+        } catch (BizException ex) {
+            return true;
+        }
     }
 
     private void validateForEnable(MsgTemplate template) {
+        requireScene(template.getSceneId(), true);
         if (!hasContent(template.getBlocklyJson())) {
             throw new BizException(ErrorCode.STATUS_NOT_ALLOWED, CONTENT_REQUIRED);
         }

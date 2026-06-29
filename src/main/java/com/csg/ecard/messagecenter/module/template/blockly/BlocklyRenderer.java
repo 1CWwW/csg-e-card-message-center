@@ -82,7 +82,8 @@ public class BlocklyRenderer {
             case BlocklyBlockTypes.MESSAGE_CONTENT -> renderMessageContent(block, context);
             case BlocklyBlockTypes.TEXT -> renderText(block);
             case BlocklyBlockTypes.TEXT_JOIN -> renderTextJoin(block, context);
-            case BlocklyBlockTypes.SCENE_PARAM_VALUE -> context.resolveParam(block);
+            case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
+                    context.resolveParam(block);
             case BlocklyBlockTypes.AMOUNT_FORMAT -> renderAmount(block, context);
             case BlocklyBlockTypes.TIME_FORMAT -> renderTime(block, context);
             case BlocklyBlockTypes.MATH_ARITHMETIC -> renderMathArithmetic(block, context);

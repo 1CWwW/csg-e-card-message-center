@@ -154,7 +154,7 @@ class MsgSceneServiceImplTest {
 
         assertThatThrownBy(() -> msgSceneService.create(request))
                 .isInstanceOfSatisfying(BizException.class,
-                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.SCENE_CODE_INVALID.getCode()));
+                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.PARAM_ERROR.getCode()));
     }
 
     @Test
@@ -163,7 +163,7 @@ class MsgSceneServiceImplTest {
 
         assertThatThrownBy(() -> msgSceneService.create(request))
                 .isInstanceOfSatisfying(BizException.class,
-                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.SCENE_CODE_INVALID.getCode()));
+                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.PARAM_ERROR.getCode()));
     }
 
     @Test
@@ -172,7 +172,7 @@ class MsgSceneServiceImplTest {
 
         assertThatThrownBy(() -> msgSceneService.create(request))
                 .isInstanceOfSatisfying(BizException.class,
-                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.SCENE_CODE_INVALID.getCode()));
+                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.PARAM_ERROR.getCode()));
     }
 
     @Test
@@ -186,21 +186,23 @@ class MsgSceneServiceImplTest {
     }
 
     @Test
-    void shouldNotUpdateSceneCodeWhenUpdatingScene() {
+    void shouldUpdateSceneCodeWhenUpdatingScene() {
         MsgScene existed = scene(10L, "OLD_CODE", CommonStatus.ENABLE.getCode());
-        MsgScene updated = scene(10L, "OLD_CODE", CommonStatus.DISABLE.getCode());
+        MsgScene updated = scene(10L, "NEW_CODE", CommonStatus.DISABLE.getCode());
         updated.setSceneName("新名称");
         when(msgSceneMapper.selectById(10L)).thenReturn(existed, updated);
+        when(msgSceneMapper.selectCount(any())).thenReturn(0L);
         when(msgSceneMapper.updateById(any(MsgScene.class))).thenReturn(1);
         SceneUpdateDTO request = updateRequest();
+        request.setSceneCode("NEW_CODE");
 
         MsgSceneVO result = msgSceneService.update(10L, request);
 
         ArgumentCaptor<MsgScene> captor = ArgumentCaptor.forClass(MsgScene.class);
         verify(msgSceneMapper).updateById(captor.capture());
-        assertThat(captor.getValue().getSceneCode()).isNull();
+        assertThat(captor.getValue().getSceneCode()).isEqualTo("NEW_CODE");
         assertThat(captor.getValue().getUpdateTime()).isNull();
-        assertThat(result.getSceneCode()).isEqualTo("OLD_CODE");
+        assertThat(result.getSceneCode()).isEqualTo("NEW_CODE");
         assertThat(result.getStatus()).isEqualTo(CommonStatus.DISABLE.getCode());
         assertThat(result.getUpdatedAt()).isEqualTo(updated.getUpdateTime());
     }
@@ -293,6 +295,16 @@ class MsgSceneServiceImplTest {
     }
 
     @Test
+    void shouldReturnEnabledTemplateCountWhenCheckingDisable() {
+        when(msgSceneMapper.selectById(5L)).thenReturn(scene(5L, "CODE_DISABLE_CHECK", CommonStatus.ENABLE.getCode()));
+        when(msgSceneMapper.selectEnabledTemplateCountBySceneId(5L)).thenReturn(3L);
+
+        var result = msgSceneService.disableCheck(5L);
+
+        assertThat(result.getEnabledTemplateCount()).isEqualTo(3L);
+    }
+
+    @Test
     void shouldToggleSceneStatus() {
         when(msgSceneMapper.selectById(1L)).thenReturn(scene(1L, "CODE_ENABLE", CommonStatus.ENABLE.getCode()));
         when(msgSceneMapper.selectById(2L)).thenReturn(scene(2L, "CODE_DISABLE", CommonStatus.DISABLE.getCode()));
@@ -348,6 +360,7 @@ class MsgSceneServiceImplTest {
 
     private SceneUpdateDTO updateRequest() {
         SceneUpdateDTO request = new SceneUpdateDTO();
+        request.setSceneCode("UPDATED_CODE");
         request.setSceneName("新名称");
         request.setModule(SceneModule.ORDER_MANAGEMENT.getCode());
         request.setDescription("更新描述");

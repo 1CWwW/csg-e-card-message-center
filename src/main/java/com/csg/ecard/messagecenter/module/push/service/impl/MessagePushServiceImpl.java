@@ -397,10 +397,12 @@ public class MessagePushServiceImpl implements MessagePushService {
     private MsgScene requireEnabledScene(String sceneCode) {
         MsgScene scene = msgSceneMapper.selectOne(new LambdaQueryWrapper<MsgScene>()
                 .eq(MsgScene::getSceneCode, sceneCode)
-                .eq(MsgScene::getStatus, CommonStatus.ENABLE.getCode())
                 .last("FETCH FIRST 1 ROWS ONLY"));
         if (scene == null) {
-            throw MessagePushException.badRequest("场景编码不存在或已停用：" + sceneCode);
+            throw MessagePushException.badRequest("场景编码不存在：" + sceneCode);
+        }
+        if (!CommonStatus.ENABLE.getCode().equals(scene.getStatus())) {
+            throw MessagePushException.badRequest("场景已停用，拒绝推送：" + sceneCode);
         }
         return scene;
     }

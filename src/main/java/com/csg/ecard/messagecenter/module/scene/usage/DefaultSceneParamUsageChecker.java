@@ -9,7 +9,6 @@ import com.csg.ecard.messagecenter.module.scene.vo.SceneParamUsageVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneParamUsageTemplateVO;
 import com.csg.ecard.messagecenter.module.template.blockly.BlocklyJsonValidator;
 import com.csg.ecard.messagecenter.module.template.blockly.BlocklyValidationMode;
-import com.csg.ecard.messagecenter.module.template.blockly.BlocklyValidationResult;
 import com.csg.ecard.messagecenter.module.template.entity.MsgTemplate;
 import com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateMapper;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +20,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -42,7 +40,7 @@ public class DefaultSceneParamUsageChecker implements SceneParamUsageChecker {
         List<SceneParamUsageTemplateVO> templates = index.getTemplates(param.getId());
         return new SceneParamUsageVO(
                 !templates.isEmpty(),
-                (long) templates.size(),
+                index.getUsageCount(param.getId()),
                 templates);
     }
 
@@ -54,11 +52,11 @@ public class DefaultSceneParamUsageChecker implements SceneParamUsageChecker {
         }
         Map<Long, MsgSceneParam> params = loadSceneParams(sceneId);
         Map<Long, Map<Long, SceneParamUsageTemplateVO>> mutableIndex = new LinkedHashMap<>();
+        Map<Long, Long> usageCounts = new LinkedHashMap<>();
 
         for (MsgTemplate template : templates) {
-            BlocklyValidationResult validation;
             try {
-                validation = blocklyJsonValidator.validateStored(
+                blocklyJsonValidator.validateStored(
                         template.getBlocklyJson(),
                         sceneId,
                         params,
@@ -69,7 +67,8 @@ public class DefaultSceneParamUsageChecker implements SceneParamUsageChecker {
                 throw new BizException(ErrorCode.STATUS_NOT_ALLOWED,
                         "模板ID " + template.getId() + " 的内容无法解析，请先修复后再操作场景参数");
             }
-            addReferences(mutableIndex, template, validation.getReferencedParamIds());
+            addReferences(mutableIndex, usageCounts, template,
+                    blocklyJsonValidator.extractReferencedParamCounts(template.getBlocklyJson()));
         }
 
         Map<Long, List<SceneParamUsageTemplateVO>> result = mutableIndex.entrySet().stream()
@@ -78,7 +77,7 @@ public class DefaultSceneParamUsageChecker implements SceneParamUsageChecker {
                         entry -> new ArrayList<>(entry.getValue().values()),
                         (left, right) -> left,
                         LinkedHashMap::new));
-        return new SceneParamUsageIndex(result);
+        return new SceneParamUsageIndex(result, usageCounts);
     }
 
     private Map<Long, MsgSceneParam> loadSceneParams(Long sceneId) {
@@ -96,14 +95,17 @@ public class DefaultSceneParamUsageChecker implements SceneParamUsageChecker {
     }
 
     private void addReferences(Map<Long, Map<Long, SceneParamUsageTemplateVO>> index,
+                               Map<Long, Long> usageCounts,
                                MsgTemplate template,
-                               Set<Long> paramIds) {
+                               Map<Long, Long> paramCounts) {
         SceneParamUsageTemplateVO reference = new SceneParamUsageTemplateVO(
                 template.getId(),
                 template.getTemplateName());
-        for (Long paramId : paramIds) {
+        for (Map.Entry<Long, Long> entry : paramCounts.entrySet()) {
+            Long paramId = entry.getKey();
             index.computeIfAbsent(paramId, ignored -> new LinkedHashMap<>())
                     .putIfAbsent(template.getId(), reference);
+            usageCounts.merge(paramId, entry.getValue(), Long::sum);
         }
     }
 }

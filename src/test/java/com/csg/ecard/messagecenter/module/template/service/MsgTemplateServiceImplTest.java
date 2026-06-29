@@ -103,28 +103,21 @@ class MsgTemplateServiceImplTest {
     }
 
     @Test
-    void shouldUpdateChannelTypeWhenEditingTemplate() {
+    void shouldRejectChannelTypeChangeWhenEditingTemplate() {
         TemplateUpdateDTO request = new TemplateUpdateDTO();
         request.setTemplateName("template");
         request.setChannelType(ChannelType.EMAIL.getCode());
         request.setStatus(CommonStatus.DISABLE.getCode());
 
-        TemplateQueryRow detail = new TemplateQueryRow();
-        detail.setId(existed.getId());
-        detail.setTemplateName(request.getTemplateName());
-        detail.setSceneId(existed.getSceneId());
-        detail.setChannelType(ChannelType.EMAIL.getCode());
-        detail.setStatus(CommonStatus.DISABLE.getCode());
-
         when(msgTemplateMapper.selectById(10L)).thenReturn(existed);
-        when(msgTemplateMapper.selectCount(any())).thenReturn(0L);
-        when(msgTemplateMapper.selectTemplateDetail(10L)).thenReturn(detail);
 
-        msgTemplateService.update(10L, request);
+        assertThatThrownBy(() -> msgTemplateService.update(10L, request))
+                .isInstanceOf(BizException.class)
+                .hasMessage("编辑模板时不允许修改渠道类型")
+                .extracting("code")
+                .isEqualTo(ErrorCode.PARAM_ERROR.getCode());
 
-        ArgumentCaptor<MsgTemplate> captor = ArgumentCaptor.forClass(MsgTemplate.class);
-        verify(msgTemplateMapper).updateById(captor.capture());
-        assertThat(captor.getValue().getChannelType()).isEqualTo(ChannelType.EMAIL.getCode());
+        verify(msgTemplateMapper, never()).updateById(any(MsgTemplate.class));
     }
 
     @Test

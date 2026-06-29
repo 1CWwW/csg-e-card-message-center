@@ -15,6 +15,7 @@ import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneMapper;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneParamMapper;
 import com.csg.ecard.messagecenter.module.scene.service.SceneParamService;
 import com.csg.ecard.messagecenter.module.scene.usage.SceneParamUsageChecker;
+import com.csg.ecard.messagecenter.module.scene.usage.SceneParamUsageIndex;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneParamUsageVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneParamVO;
 import lombok.RequiredArgsConstructor;
@@ -51,7 +52,8 @@ public class SceneParamServiceImpl implements SceneParamService {
         List<MsgSceneParam> params = msgSceneParamMapper.selectList(new LambdaQueryWrapper<MsgSceneParam>()
                 .eq(MsgSceneParam::getSceneId, sceneId)
                 .orderByAsc(MsgSceneParam::getSortOrder));
-        return params.stream().map(this::toVO).toList();
+        SceneParamUsageIndex usageIndex = sceneParamUsageChecker.buildUsageIndex(sceneId);
+        return params.stream().map(param -> toVO(param, usageIndex)).toList();
     }
 
     @Override
@@ -268,6 +270,10 @@ public class SceneParamServiceImpl implements SceneParamService {
     }
 
     private SceneParamVO toVO(MsgSceneParam param) {
+        return toVO(param, null);
+    }
+
+    private SceneParamVO toVO(MsgSceneParam param, SceneParamUsageIndex usageIndex) {
         SceneParamVO vo = new SceneParamVO();
         vo.setId(param.getId());
         vo.setSceneId(param.getSceneId());
@@ -277,7 +283,7 @@ public class SceneParamServiceImpl implements SceneParamService {
         vo.setParamTypeDesc(ParamType.fromCode(param.getParamType()).getDesc());
         vo.setSortOrder(param.getSortOrder());
         vo.setIsRequired(param.getIsRequired() == null ? NOT_REQUIRED : param.getIsRequired());
-        vo.setUsageCount(0L);
+        vo.setUsageCount(usageIndex == null ? 0L : (long) usageIndex.getTemplates(param.getId()).size());
         vo.setCreatedAt(param.getCreateTime());
         vo.setUpdatedAt(param.getUpdateTime());
         return vo;
