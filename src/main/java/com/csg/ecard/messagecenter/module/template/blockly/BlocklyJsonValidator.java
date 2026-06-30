@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
+import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -36,6 +37,7 @@ public class BlocklyJsonValidator {
     private static final int MAX_ELSE_IF_COUNT = 10;
     private static final int MAX_SEPARATOR_LENGTH = 20;
     private static final String CONTENT_INPUT = "CONTENT";
+    private static final String LINKED_NODE_MODE = "LINKED_NODES";
     private static final Pattern CONDITIONAL_INPUT_PATTERN = Pattern.compile("^(IF|DO)(\\d+)$");
 
     private final ObjectMapper objectMapper;
@@ -128,6 +130,11 @@ public class BlocklyJsonValidator {
             return true;
         }
         JsonNode topBlocks = root.path("workspace").path("blocks").path("blocks");
+        JsonNode workspace = root.path("workspace");
+        if (isLinkedNodeMode(workspace)) {
+            JsonNode order = workspace.get("templateNodeOrder");
+            return order == null || !order.isArray() || order.isEmpty();
+        }
         if (!topBlocks.isArray() || topBlocks.isEmpty()) {
             return true;
         }
@@ -197,7 +204,9 @@ public class BlocklyJsonValidator {
 
         ValidationContext context = new ValidationContext(sceneId,
                 params == null ? Collections.emptyMap() : params);
-        boolean hasContent = validateTopBlocks(topBlocks, context);
+        boolean hasContent = isLinkedNodeMode(workspace)
+                ? validateLinkedNodes(workspace, topBlocks, context)
+                : validateTopBlocks(topBlocks, context);
         if (mode == BlocklyValidationMode.ENABLE && !hasContent) {
             throw new BizException(ErrorCode.STATUS_NOT_ALLOWED, "模板正文不能为空");
         }
@@ -232,6 +241,160 @@ public class BlocklyJsonValidator {
         BlocklyValueType type = validateNode(content, 2, context);
         requireTextOutput(type, content.path("type").asText());
         return true;
+    }
+
+    private boolean validateLinkedNodes(JsonNode workspace,
+                                        JsonNode topBlocks,
+                                        ValidationContext context) {
+        JsonNode order = workspace.get("templateNodeOrder");
+        if (order == null || !order.isArray() || order.isEmpty()) {
+            return false;
+        }
+        Map<String, JsonNode> blockIndex = buildBlockIndex(topBlocks);
+        List<JsonNode> orderedBlocks = new java.util.ArrayList<>();
+        for (JsonNode idNode : order) {
+            String blockId = text(idNode);
+            if (!StringUtils.hasText(blockId)) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "templateNodeOrder 中的节点ID不能为空");
+            }
+            JsonNode block = blockIndex.get(blockId);
+            if (block == null) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "模板节点不存在：" + blockId);
+            }
+            orderedBlocks.add(block);
+        }
+        validateLinkedOrderedBlocks(orderedBlocks, context);
+        return true;
+    }
+
+    private void validateLinkedOrderedBlocks(List<JsonNode> orderedBlocks, ValidationContext context) {
+        for (int index = 0; index < orderedBlocks.size(); index++) {
+            JsonNode block = orderedBlocks.get(index);
+            countNode(block, 1, context);
+            String blockType = requireBlockType(block);
+            if (!BlocklyBlockTypes.SUPPORTED_TYPES.contains(blockType)) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "不支持的 Blockly 节点类型：" + blockType);
+            }
+            switch (blockType) {
+                case BlocklyBlockTypes.TEXT -> validateText(block);
+                case BlocklyBlockTypes.TEXT_JOIN -> validateLinkedTextJoin(block);
+                case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
+                        validateParamReference(block, context);
+                case BlocklyBlockTypes.MATH_ARITHMETIC ->
+                        requireLinkedOperator(block, Set.of("ADD", "MINUS", "MULTIPLY", "DIVIDE"));
+                case BlocklyBlockTypes.MATH_MODULO -> validateLinkedNeighbor(index, orderedBlocks, blockType);
+                case BlocklyBlockTypes.LOGIC_COMPARE ->
+                        requireLinkedOperator(block, Set.of("EQ", "NEQ", "LT", "LTE", "GT", "GTE"));
+                case BlocklyBlockTypes.STRING_CONTAINS, BlocklyBlockTypes.STRING_LIKE ->
+                        validateLinkedNeighbor(index, orderedBlocks, blockType);
+                case BlocklyBlockTypes.LOGIC_OPERATION ->
+                        requireLinkedOperator(block, Set.of("AND", "OR"));
+                case BlocklyBlockTypes.LOGIC_NEGATE -> validateLinkedNext(index, orderedBlocks, blockType);
+                case BlocklyBlockTypes.AMOUNT_FORMAT ->
+                        validateLinkedAdjacent(index, orderedBlocks, blockType);
+                case BlocklyBlockTypes.TIME_FORMAT -> {
+                    validateLinkedAdjacent(index, orderedBlocks, blockType);
+                    validateLinkedTimeFormat(block);
+                }
+                case BlocklyBlockTypes.CONTROLS_IF ->
+                        throw new BizException(ErrorCode.PARAM_ERROR, "链式条件分支暂未支持");
+                case BlocklyBlockTypes.CONTROLS_FOR_EACH ->
+                        throw new BizException(ErrorCode.PARAM_ERROR, "链式循环暂未支持");
+                case BlocklyBlockTypes.LOOP_ITEM_VALUE ->
+                        throw new BizException(ErrorCode.PARAM_ERROR, "loop_item_value 只能在循环体中使用");
+                case BlocklyBlockTypes.MESSAGE_CONTENT ->
+                        throw new BizException(ErrorCode.PARAM_ERROR, "LINKED_NODES 模式不支持 message_content 节点");
+                default -> throw new BizException(ErrorCode.PARAM_ERROR, "不支持的 Blockly 节点类型：" + blockType);
+            }
+        }
+    }
+
+    private void validateLinkedTextJoin(JsonNode block) {
+        JsonNode text = block.path("fields").get("TEXT");
+        if (text != null && !text.isTextual()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "text_join 的 TEXT 必须为字符串");
+        }
+    }
+
+    private void validateLinkedNeighbor(int index, List<JsonNode> orderedBlocks, String blockType) {
+        if (index == 0 || index >= orderedBlocks.size() - 1) {
+            throw new BizException(ErrorCode.PARAM_ERROR, blockType + " 节点前后必须存在操作数");
+        }
+    }
+
+    private void validateLinkedNext(int index, List<JsonNode> orderedBlocks, String blockType) {
+        if (index >= orderedBlocks.size() - 1) {
+            throw new BizException(ErrorCode.PARAM_ERROR, blockType + " 节点后必须存在操作数");
+        }
+    }
+
+    private void validateLinkedAdjacent(int index, List<JsonNode> orderedBlocks, String blockType) {
+        if (orderedBlocks.size() == 1 || (index == 0 && orderedBlocks.size() == 1)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, blockType + " 节点必须存在相邻输入节点");
+        }
+    }
+
+    private String requireLinkedOperator(JsonNode block, Set<String> supported) {
+        String blockType = block.path("type").asText();
+        String operator = linkedOperation(block);
+        if (!StringUtils.hasText(operator) || !supported.contains(operator)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, blockType + " " + operator + " 不支持");
+        }
+        return operator;
+    }
+
+    private void validateLinkedTimeFormat(JsonNode block) {
+        String format = linkedTimeFormat(block);
+        try {
+            DateTimeFormatter.ofPattern(format);
+        } catch (IllegalArgumentException ex) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "时间格式模板不合法：" + format);
+        }
+    }
+
+    private String linkedTimeFormat(JsonNode block) {
+        String format = text(block.path("extraState").get("format"));
+        if (StringUtils.hasText(format)) {
+            return format;
+        }
+        format = text(block.path("fields").get("FORMAT"));
+        return StringUtils.hasText(format) ? format : "yyyy-MM-dd HH:mm:ss";
+    }
+
+    private Map<String, JsonNode> buildBlockIndex(JsonNode topBlocks) {
+        if (topBlocks == null || !topBlocks.isArray()) {
+            return Collections.emptyMap();
+        }
+        Map<String, JsonNode> result = new LinkedHashMap<>();
+        for (JsonNode block : topBlocks) {
+            collectBlockIndex(block, result);
+        }
+        return result;
+    }
+
+    private void collectBlockIndex(JsonNode node, Map<String, JsonNode> result) {
+        if (node == null || node.isNull()) {
+            return;
+        }
+        if (node.isObject()) {
+            if (node.has("type")) {
+                String blockId = text(node.get("id"));
+                if (StringUtils.hasText(blockId)) {
+                    result.putIfAbsent(blockId, node);
+                }
+            }
+            Iterator<JsonNode> elements = node.elements();
+            while (elements.hasNext()) {
+                collectBlockIndex(elements.next(), result);
+            }
+            return;
+        }
+        if (node.isArray()) {
+            Iterator<JsonNode> elements = node.elements();
+            while (elements.hasNext()) {
+                collectBlockIndex(elements.next(), result);
+            }
+        }
     }
 
     private List<JsonNode> findTopContentRoots(JsonNode topBlocks) {
@@ -335,6 +498,10 @@ public class BlocklyJsonValidator {
         JsonNode inputs = block.get("inputs");
         if (inputs != null && !inputs.isObject()) {
             throw new BizException(ErrorCode.PARAM_ERROR, "text_join 的 inputs 必须为对象");
+        }
+        JsonNode text = block.path("fields").get("TEXT");
+        if (text != null && !text.isTextual()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "text_join 的 TEXT 必须为字符串");
         }
         if (inputs != null) {
             Iterator<Map.Entry<String, JsonNode>> iterator = inputs.fields();
@@ -655,16 +822,13 @@ public class BlocklyJsonValidator {
         if (extraState == null || !extraState.isObject()) {
             throw new BizException(ErrorCode.PARAM_ERROR, blockType + " 缺少 extraState");
         }
-        String sceneIdText = requiredText(extraState, "sceneId", blockType);
-        String paramIdText = requiredText(extraState, "paramId", blockType);
         String paramName = requiredText(extraState, "paramName", blockType);
-        String paramType = requiredText(extraState, "paramType", blockType);
-        Long referenceSceneId = parseId(sceneIdText, "sceneId", blockType);
-        Long paramId = parseId(paramIdText, "paramId", blockType);
-        if (!referenceSceneId.equals(context.sceneId)) {
+        String sceneIdText = text(extraState.get("sceneId"));
+        if (StringUtils.hasText(sceneIdText)
+                && !parseId(sceneIdText, "sceneId", blockType).equals(context.sceneId)) {
             throw new BizException(ErrorCode.PARAM_ERROR, blockType + " 引用场景与模板场景不一致");
         }
-        MsgSceneParam param = context.params.get(paramId);
+        MsgSceneParam param = resolveSceneParam(extraState, paramName, blockType, context);
         if (param == null || !context.sceneId.equals(param.getSceneId())) {
             throw new BizException(ErrorCode.PARAM_ERROR,
                     blockType + " 引用参数不存在或不属于当前场景");
@@ -673,18 +837,33 @@ public class BlocklyJsonValidator {
             throw new BizException(ErrorCode.PARAM_ERROR,
                     blockType + " 参数名已变更，当前名称为 " + param.getParamName());
         }
-        if (!param.getParamType().equals(paramType)) {
+        String paramType = text(extraState.get("paramType"));
+        if (StringUtils.hasText(paramType) && !param.getParamType().equals(paramType)) {
             throw new BizException(ErrorCode.PARAM_ERROR,
                     blockType + " 参数类型已变更，当前类型为 " + param.getParamType());
         }
-        context.referencedParamIds.add(paramId);
-        context.referencedParamCounts.merge(paramId, 1L, Long::sum);
+        context.referencedParamIds.add(param.getId());
+        context.referencedParamCounts.merge(param.getId(), 1L, Long::sum);
         try {
-            return BlocklyValueType.fromParamType(paramType);
+            return BlocklyValueType.fromParamType(param.getParamType());
         } catch (IllegalArgumentException ex) {
             throw new BizException(ErrorCode.PARAM_ERROR,
-                    blockType + " 的 paramType 不支持：" + paramType);
+                    blockType + " 的 paramType 不支持：" + param.getParamType());
         }
+    }
+
+    private MsgSceneParam resolveSceneParam(JsonNode extraState,
+                                            String paramName,
+                                            String blockType,
+                                            ValidationContext context) {
+        String paramIdText = text(extraState.get("paramId"));
+        if (StringUtils.hasText(paramIdText)) {
+            return context.params.get(parseId(paramIdText, "paramId", blockType));
+        }
+        return context.params.values().stream()
+                .filter(param -> paramName.equals(param.getParamName()))
+                .findFirst()
+                .orElse(null);
     }
 
     private void validateAttachedNext(JsonNode block, int depth, ValidationContext context) {
@@ -836,6 +1015,20 @@ public class BlocklyJsonValidator {
 
     private String text(JsonNode node) {
         return node != null && node.isTextual() ? node.textValue() : null;
+    }
+
+    private String linkedOperation(JsonNode block) {
+        String operation = text(block.path("extraState").get("operation"));
+        if (StringUtils.hasText(operation)) {
+            return operation;
+        }
+        return text(block.path("fields").get("OP"));
+    }
+
+    private boolean isLinkedNodeMode(JsonNode workspace) {
+        return workspace != null
+                && workspace.isObject()
+                && LINKED_NODE_MODE.equals(text(workspace.get("templateNodeMode")));
     }
 
     private void validateSchemaVersion(Integer schemaVersion) {

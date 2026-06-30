@@ -46,15 +46,8 @@ public class BlockRenderContext {
      */
     public BlocklyRenderValue resolveParam(JsonNode block) {
         JsonNode extraState = block.get("extraState");
-        String paramIdText = extraState.path("paramId").asText();
         String paramName = extraState.path("paramName").asText();
-        Long paramId;
-        try {
-            paramId = Long.valueOf(paramIdText);
-        } catch (NumberFormatException ex) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "场景参数节点paramId必须为有效ID字符串");
-        }
-        MsgSceneParam param = params.get(paramId);
+        MsgSceneParam param = resolveParam(extraState, paramName);
         if (param == null || !sceneId.equals(param.getSceneId()) || !paramName.equals(param.getParamName())) {
             throw new BizException(ErrorCode.PARAM_ERROR,
                     "模板引用的参数不存在、已删除或不属于当前场景：" + paramName);
@@ -82,6 +75,52 @@ public class BlockRenderContext {
                     "场景参数类型不支持：" + param.getParamType());
         };
         return new BlocklyRenderValue(type, value);
+    }
+
+    /**
+     * 获取场景参数原始预览值，用于链式格式化节点区分输入值和格式模板。
+     */
+    public String resolveRawParamText(JsonNode block) {
+        JsonNode extraState = block.get("extraState");
+        String paramName = extraState.path("paramName").asText();
+        MsgSceneParam param = resolveParam(extraState, paramName);
+        if (param == null || !sceneId.equals(param.getSceneId()) || !paramName.equals(param.getParamName())) {
+            throw new BizException(ErrorCode.PARAM_ERROR,
+                    "模板引用的参数不存在、已删除或不属于当前场景：" + paramName);
+        }
+        usedParams.add(paramName);
+        JsonNode rawValue = values.get(paramName);
+        boolean provided = values.containsKey(paramName);
+        if (!provided || rawValue == null || rawValue.isNull()) {
+            return missingValueText(param);
+        }
+        if (rawValue.isTextual()) {
+            return rawValue.textValue();
+        }
+        return rawValue.asText();
+    }
+
+    private MsgSceneParam resolveParam(JsonNode extraState, String paramName) {
+        String paramIdText = extraState.path("paramId").asText();
+        if (paramIdText != null && !paramIdText.isBlank()) {
+            try {
+                return params.get(Long.valueOf(paramIdText));
+            } catch (NumberFormatException ex) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "场景参数节点paramId必须为有效ID字符串");
+            }
+        }
+        return params.values().stream()
+                .filter(param -> paramName.equals(param.getParamName()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String missingValueText(MsgSceneParam param) {
+        if (Integer.valueOf(1).equals(param.getIsRequired())) {
+            throw new BizException(ErrorCode.PARAM_ERROR,
+                    "必填参数未提供或值为空：" + param.getParamName());
+        }
+        return "";
     }
 
     private List<String> toStringArray(JsonNode rawValue) {

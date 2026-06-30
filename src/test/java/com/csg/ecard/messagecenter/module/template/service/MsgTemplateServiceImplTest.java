@@ -183,6 +183,119 @@ class MsgTemplateServiceImplTest {
     }
 
     @Test
+    void shouldRenderLinkedNodeModeByTemplateNodeOrder() {
+        ObjectNode hello = textBlock("你好，");
+        hello.put("id", "text-1");
+        ObjectNode param = paramBlock(10L, "prefix", ParamType.STRING);
+        param.put("id", "param-1");
+        ObjectNode suffix = objectMapper.createObjectNode();
+        suffix.put("id", "join-1");
+        suffix.put("type", BlocklyBlockTypes.TEXT_JOIN);
+        suffix.putObject("fields").put("TEXT", "！");
+
+        ObjectNode workspace = linkedWorkspace(hello, param, suffix);
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1, workspace, 1L,
+                expressionParams, BlocklyValidationMode.DRAFT);
+
+        BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("prefix", objectMapper.valueToTree("南网")));
+
+        assertThat(result.renderedContent()).isEqualTo("你好，南网！");
+        assertThat(result.usedParams()).containsExactly("prefix");
+    }
+
+    @Test
+    void shouldRejectMissingBlockInLinkedNodeOrder() {
+        ObjectNode hello = textBlock("你好");
+        hello.put("id", "text-1");
+        ObjectNode workspace = linkedWorkspace(hello);
+        ((ArrayNode) workspace.get("templateNodeOrder")).add("missing-1");
+
+        assertThatThrownBy(() -> actualValidator.validateWorkspace(1, workspace, 1L,
+                expressionParams, BlocklyValidationMode.DRAFT))
+                .isInstanceOf(BizException.class)
+                .hasMessage("模板节点不存在：missing-1");
+    }
+
+    @Test
+    void shouldRenderLinkedMathCompareAndFormatNodes() {
+        BlocklyValidationResult math = actualValidator.validateWorkspace(1,
+                linkedWorkspace(linkedText("n1", "5"),
+                        linkedOperation("op1", BlocklyBlockTypes.MATH_ARITHMETIC, "ADD"),
+                        linkedText("n2", "1")), 1L,
+                expressionParams, BlocklyValidationMode.DRAFT);
+        assertThat(actualRenderer.render(math.getBlocklyJson(), 1L,
+                expressionParams, Map.of()).renderedContent()).isEqualTo("6");
+
+        BlocklyValidationResult amount = actualValidator.validateWorkspace(1,
+                linkedWorkspace(linkedText("n3", "5"),
+                        linkedDecimals("fmt1", BlocklyBlockTypes.AMOUNT_FORMAT, 1)), 1L,
+                expressionParams, BlocklyValidationMode.DRAFT);
+        assertThat(actualRenderer.render(amount.getBlocklyJson(), 1L,
+                expressionParams, Map.of()).renderedContent()).isEqualTo("5.0");
+
+        BlocklyValidationResult compare = actualValidator.validateWorkspace(1,
+                linkedWorkspace(linkedText("n4", "6"),
+                        linkedOperation("cmp1", BlocklyBlockTypes.LOGIC_COMPARE, "GT"),
+                        linkedText("n5", "4")), 1L,
+                expressionParams, BlocklyValidationMode.DRAFT);
+        assertThat(actualRenderer.render(compare.getBlocklyJson(), 1L,
+                expressionParams, Map.of()).renderedContent()).isEqualTo("true");
+    }
+
+    @Test
+    void shouldRejectUnsupportedLinkedControlsIfClearly() {
+        ObjectNode controlsIf = objectMapper.createObjectNode();
+        controlsIf.put("id", "if1");
+        controlsIf.put("type", BlocklyBlockTypes.CONTROLS_IF);
+
+        assertThatThrownBy(() -> actualValidator.validateWorkspace(1,
+                linkedWorkspace(controlsIf), 1L, expressionParams, BlocklyValidationMode.DRAFT))
+                .isInstanceOf(BizException.class)
+                .hasMessage("链式条件分支暂未支持");
+    }
+
+    @Test
+    void shouldRenderLinkedTimeFormatWithRawPreviewValue() {
+        ObjectNode sendTime = paramBlock(4L, "sendTime", ParamType.TIME);
+        sendTime.put("id", "time-param");
+        ObjectNode formatter = linkedTimeFormat("time-format", "yyyy-MM-dd HH:mm:ss");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                linkedWorkspace(sendTime, formatter), 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("sendTime", objectMapper.valueToTree("2026-11-11 11:11:11")));
+
+        assertThat(result.renderedContent()).isEqualTo("2026-11-11 11:11:11");
+        assertThat(result.usedParams()).containsExactly("sendTime");
+    }
+
+    @Test
+    void shouldDistinguishLinkedTimeValueAndFormatErrors() {
+        ObjectNode sendDate = paramBlock(4L, "sendTime", ParamType.TIME);
+        sendDate.put("id", "time-param");
+        ObjectNode formatter = linkedTimeFormat("time-format", "yyyy-MM-dd HH:mm:ss");
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                linkedWorkspace(sendDate, formatter), 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("sendTime", objectMapper.valueToTree("2026-11-11")))
+                .renderedContent()).isEqualTo("2026-11-11 00:00:00");
+
+        ObjectNode invalidFormatter = linkedTimeFormat("bad-format", "yyyy-MM-dd HH:mm:ss '");
+        assertThatThrownBy(() -> actualValidator.validateWorkspace(1,
+                linkedWorkspace(sendDate, invalidFormatter), 1L, expressionParams, BlocklyValidationMode.DRAFT))
+                .isInstanceOf(BizException.class)
+                .hasMessage("时间格式模板不合法：yyyy-MM-dd HH:mm:ss '");
+
+        assertThatThrownBy(() -> actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("sendTime", objectMapper.valueToTree("not-time"))))
+                .isInstanceOf(BizException.class)
+                .hasMessage("时间值格式不合法，应为 yyyy-MM-dd HH:mm:ss");
+    }
+
+    @Test
     void shouldRejectDivisionAndModuloByZero() {
         ObjectNode division = binary(BlocklyBlockTypes.MATH_ARITHMETIC, "DIVIDE",
                 "A", paramBlock(1L, "left", ParamType.NUMBER),
@@ -575,6 +688,24 @@ class MsgTemplateServiceImplTest {
         return workspace;
     }
 
+    private ObjectNode linkedWorkspace(ObjectNode... blocks) {
+        ObjectNode workspace = objectMapper.createObjectNode();
+        workspace.put("templateNodeMode", "LINKED_NODES");
+        workspace.putArray("templateLinks");
+        ArrayNode order = workspace.putArray("templateNodeOrder");
+        ObjectNode blocksNode = workspace.putObject("blocks");
+        blocksNode.put("languageVersion", 0);
+        ArrayNode topBlocks = blocksNode.putArray("blocks");
+        for (ObjectNode block : blocks) {
+            order.add(block.path("id").asText());
+            topBlocks.add(block);
+        }
+        if (blocks.length > 0) {
+            workspace.put("templateEntryBlockId", blocks[0].path("id").asText());
+        }
+        return workspace;
+    }
+
     private ObjectNode binary(String type,
                               String operator,
                               String leftName,
@@ -663,6 +794,36 @@ class MsgTemplateServiceImplTest {
         ObjectNode block = objectMapper.createObjectNode();
         block.put("type", BlocklyBlockTypes.TEXT);
         block.putObject("fields").put("TEXT", value);
+        return block;
+    }
+
+    private ObjectNode linkedText(String id, String value) {
+        ObjectNode block = textBlock(value);
+        block.put("id", id);
+        return block;
+    }
+
+    private ObjectNode linkedOperation(String id, String type, String operation) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("id", id);
+        block.put("type", type);
+        block.putObject("extraState").put("operation", operation);
+        return block;
+    }
+
+    private ObjectNode linkedDecimals(String id, String type, int decimals) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("id", id);
+        block.put("type", type);
+        block.putObject("extraState").put("decimals", decimals);
+        return block;
+    }
+
+    private ObjectNode linkedTimeFormat(String id, String format) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("id", id);
+        block.put("type", BlocklyBlockTypes.TIME_FORMAT);
+        block.putObject("fields").put("FORMAT", format);
         return block;
     }
 

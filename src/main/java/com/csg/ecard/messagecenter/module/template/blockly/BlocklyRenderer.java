@@ -9,6 +9,7 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -34,6 +35,7 @@ public class BlocklyRenderer {
     private static final RoundingMode DIVISION_ROUNDING = RoundingMode.HALF_UP;
     private static final DateTimeFormatter TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String LINKED_NODE_MODE = "LINKED_NODES";
 
     private final SceneParamValueValidator valueValidator;
 
@@ -45,6 +47,10 @@ public class BlocklyRenderer {
      * 校验模板结构中的节点均属于统一支持集合且正文可输出。
      */
     public void validateRenderable(JsonNode blocklyJson) {
+        if (isLinkedNodeMode(blocklyJson.path("workspace"))) {
+            validateLinkedRenderable(blocklyJson);
+            return;
+        }
         JsonNode root = requireContentRoot(blocklyJson);
         JsonNode content = requireContentBlock(root);
         validateSupportedTree(root, true);
@@ -60,6 +66,9 @@ public class BlocklyRenderer {
                                       Long sceneId,
                                       Map<Long, MsgSceneParam> params,
                                       Map<String, JsonNode> values) {
+        if (isLinkedNodeMode(blocklyJson.path("workspace"))) {
+            return renderLinkedNodes(blocklyJson, sceneId, params, values);
+        }
         validateRenderable(blocklyJson);
         JsonNode root = requireContentRoot(blocklyJson);
         BlockRenderContext context = new BlockRenderContext(sceneId, params, values, valueValidator);
@@ -125,6 +134,11 @@ public class BlocklyRenderer {
     private BlocklyRenderValue renderTextJoin(JsonNode block, BlockRenderContext context) {
         StringBuilder content = new StringBuilder();
         JsonNode inputs = block.get("inputs");
+        if (inputs == null || !inputs.isObject() || inputs.isEmpty()) {
+            JsonNode text = block.path("fields").get("TEXT");
+            return new BlocklyRenderValue(BlocklyValueType.STRING,
+                    text != null && text.isTextual() ? text.textValue() : "");
+        }
         if (inputs != null && inputs.isObject()) {
             Iterator<Map.Entry<String, JsonNode>> fields = inputs.fields();
             while (fields.hasNext()) {
@@ -494,12 +508,18 @@ public class BlocklyRenderer {
         String blockType = block.path("type").asText();
         boolean current = switch (blockType) {
             case BlocklyBlockTypes.TEXT -> hasTextField(block);
-            case BlocklyBlockTypes.TEXT_JOIN -> hasPotentialInputContent(block);
+            case BlocklyBlockTypes.TEXT_JOIN -> hasTextField(block) || hasPotentialInputContent(block);
             case BlocklyBlockTypes.SCENE_PARAM_VALUE,
+                 BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF,
                  BlocklyBlockTypes.AMOUNT_FORMAT,
                  BlocklyBlockTypes.TIME_FORMAT,
                  BlocklyBlockTypes.MATH_ARITHMETIC,
                  BlocklyBlockTypes.MATH_MODULO,
+                 BlocklyBlockTypes.LOGIC_COMPARE,
+                 BlocklyBlockTypes.LOGIC_OPERATION,
+                 BlocklyBlockTypes.LOGIC_NEGATE,
+                 BlocklyBlockTypes.STRING_CONTAINS,
+                 BlocklyBlockTypes.STRING_LIKE,
                  BlocklyBlockTypes.CONTROLS_IF,
                  BlocklyBlockTypes.CONTROLS_FOR_EACH -> true;
             default -> false;
@@ -550,6 +570,396 @@ public class BlocklyRenderer {
         return containsBlockType(activeBlock(block.get("next")), expectedType);
     }
 
+    private void validateLinkedRenderable(JsonNode blocklyJson) {
+        List<JsonNode> orderedBlocks = requireLinkedOrderedBlocks(blocklyJson);
+        boolean hasContent = false;
+        for (JsonNode block : orderedBlocks) {
+            validateSupportedTree(block, false);
+            hasContent = hasContent || hasPotentialContent(block, false);
+        }
+        if (!hasContent) {
+            throw new BizException(ErrorCode.TEMPLATE_EMPTY, "模板正文不能为空");
+        }
+    }
+
+    private BlocklyRenderResult renderLinkedNodes(JsonNode blocklyJson,
+                                                  Long sceneId,
+                                                  Map<Long, MsgSceneParam> params,
+                                                  Map<String, JsonNode> values) {
+        validateLinkedRenderable(blocklyJson);
+        BlockRenderContext context = new BlockRenderContext(sceneId, params, values, valueValidator);
+        List<JsonNode> orderedBlocks = requireLinkedOrderedBlocks(blocklyJson);
+        boolean[] consumed = linkedConsumedFlags(orderedBlocks);
+        StringBuilder content = new StringBuilder();
+        for (int index = 0; index < orderedBlocks.size(); index++) {
+            if (consumed[index]) {
+                continue;
+            }
+            JsonNode block = orderedBlocks.get(index);
+            BlocklyRenderValue rendered = renderLinkedValue(index, orderedBlocks, context);
+            content.append(rendered.asText());
+            validateRenderedContentSize(content.toString());
+        }
+        if (!StringUtils.hasText(content.toString())) {
+            throw new BizException(ErrorCode.TEMPLATE_EMPTY, "模板正文不能为空");
+        }
+        return new BlocklyRenderResult(content.toString(), context.getUsedParams(), context.getWarnings());
+    }
+
+    private boolean[] linkedConsumedFlags(List<JsonNode> orderedBlocks) {
+        boolean[] consumed = new boolean[orderedBlocks.size()];
+        for (int index = 0; index < orderedBlocks.size(); index++) {
+            String blockType = orderedBlocks.get(index).path("type").asText();
+            if (isLinkedBinaryOperator(blockType)) {
+                if (index > 0) {
+                    consumed[index - 1] = true;
+                }
+                if (index < orderedBlocks.size() - 1) {
+                    consumed[index + 1] = true;
+                }
+            } else if (BlocklyBlockTypes.LOGIC_NEGATE.equals(blockType)) {
+                if (index < orderedBlocks.size() - 1) {
+                    consumed[index + 1] = true;
+                }
+            } else if (BlocklyBlockTypes.AMOUNT_FORMAT.equals(blockType)
+                    || BlocklyBlockTypes.TIME_FORMAT.equals(blockType)) {
+                int inputIndex = linkedAdjacentInputIndex(index, orderedBlocks);
+                if (inputIndex >= 0) {
+                    consumed[inputIndex] = true;
+                }
+            }
+        }
+        return consumed;
+    }
+
+    private BlocklyRenderValue renderLinkedValue(int index,
+                                                 List<JsonNode> orderedBlocks,
+                                                 BlockRenderContext context) {
+        JsonNode block = orderedBlocks.get(index);
+        String blockType = block.path("type").asText();
+        return switch (blockType) {
+            case BlocklyBlockTypes.TEXT -> renderText(block);
+            case BlocklyBlockTypes.TEXT_JOIN -> renderTextJoin(block, context);
+            case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
+                    context.resolveParam(block);
+            case BlocklyBlockTypes.MATH_ARITHMETIC -> renderLinkedMathArithmetic(index, orderedBlocks, context);
+            case BlocklyBlockTypes.MATH_MODULO -> renderLinkedModulo(index, orderedBlocks, context);
+            case BlocklyBlockTypes.LOGIC_COMPARE -> renderLinkedCompare(index, orderedBlocks, context);
+            case BlocklyBlockTypes.STRING_CONTAINS -> renderLinkedStringContains(index, orderedBlocks, context);
+            case BlocklyBlockTypes.STRING_LIKE -> renderLinkedStringLike(index, orderedBlocks, context);
+            case BlocklyBlockTypes.LOGIC_OPERATION -> renderLinkedLogicOperation(index, orderedBlocks, context);
+            case BlocklyBlockTypes.LOGIC_NEGATE -> renderLinkedLogicNegate(index, orderedBlocks, context);
+            case BlocklyBlockTypes.AMOUNT_FORMAT -> renderLinkedAmount(index, orderedBlocks, context);
+            case BlocklyBlockTypes.TIME_FORMAT -> renderLinkedTime(index, orderedBlocks, context);
+            case BlocklyBlockTypes.CONTROLS_IF ->
+                    throw new BizException(ErrorCode.RENDER_FAILED, "链式条件分支暂未支持");
+            case BlocklyBlockTypes.CONTROLS_FOR_EACH ->
+                    throw new BizException(ErrorCode.RENDER_FAILED, "链式循环暂未支持");
+            default -> renderNode(block, context, false);
+        };
+    }
+
+    private BlocklyRenderValue renderLinkedMathArithmetic(int index,
+                                                          List<JsonNode> orderedBlocks,
+                                                          BlockRenderContext context) {
+        String operator = linkedOperator(orderedBlocks.get(index), Set.of("ADD", "MINUS", "MULTIPLY", "DIVIDE"));
+        BigDecimal left = requireLinkedNumber(linkedOperand(index - 1, orderedBlocks, context),
+                "数学运算节点前后必须是数值");
+        BigDecimal right = requireLinkedNumber(linkedOperand(index + 1, orderedBlocks, context),
+                "数学运算节点前后必须是数值");
+        BigDecimal result = switch (operator) {
+            case "ADD" -> left.add(right);
+            case "MINUS" -> left.subtract(right);
+            case "MULTIPLY" -> left.multiply(right);
+            case "DIVIDE" -> divide(left, right, BlocklyBlockTypes.MATH_ARITHMETIC);
+            default -> throw unsupportedOperator(BlocklyBlockTypes.MATH_ARITHMETIC);
+        };
+        return new BlocklyRenderValue(BlocklyValueType.NUMBER, result);
+    }
+
+    private BlocklyRenderValue renderLinkedModulo(int index,
+                                                  List<JsonNode> orderedBlocks,
+                                                  BlockRenderContext context) {
+        BigDecimal dividend = requireLinkedNumber(linkedOperand(index - 1, orderedBlocks, context),
+                "取余节点前后必须是数值");
+        BigDecimal divisor = requireLinkedNumber(linkedOperand(index + 1, orderedBlocks, context),
+                "取余节点前后必须是数值");
+        if (divisor.compareTo(BigDecimal.ZERO) == 0) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "math_modulo 的除数不能为 0");
+        }
+        return new BlocklyRenderValue(BlocklyValueType.NUMBER, dividend.remainder(divisor));
+    }
+
+    private BlocklyRenderValue renderLinkedCompare(int index,
+                                                   List<JsonNode> orderedBlocks,
+                                                   BlockRenderContext context) {
+        String operator = linkedOperator(orderedBlocks.get(index), Set.of("EQ", "NEQ", "LT", "LTE", "GT", "GTE"));
+        BlocklyRenderValue left = linkedOperand(index - 1, orderedBlocks, context);
+        BlocklyRenderValue right = linkedOperand(index + 1, orderedBlocks, context);
+        boolean result;
+        if ("EQ".equals(operator) || "NEQ".equals(operator)) {
+            boolean equal = Objects.equals(left.asText(), right.asText());
+            result = "EQ".equals(operator) ? equal : !equal;
+        } else {
+            int compared = requireLinkedNumber(left, "比较节点前后必须是数值")
+                    .compareTo(requireLinkedNumber(right, "比较节点前后必须是数值"));
+            result = switch (operator) {
+                case "LT" -> compared < 0;
+                case "LTE" -> compared <= 0;
+                case "GT" -> compared > 0;
+                case "GTE" -> compared >= 0;
+                default -> throw unsupportedOperator(BlocklyBlockTypes.LOGIC_COMPARE);
+            };
+        }
+        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, result);
+    }
+
+    private BlocklyRenderValue renderLinkedStringContains(int index,
+                                                          List<JsonNode> orderedBlocks,
+                                                          BlockRenderContext context) {
+        String left = linkedOperand(index - 1, orderedBlocks, context).asText();
+        String right = linkedOperand(index + 1, orderedBlocks, context).asText();
+        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, left.contains(right));
+    }
+
+    private BlocklyRenderValue renderLinkedStringLike(int index,
+                                                      List<JsonNode> orderedBlocks,
+                                                      BlockRenderContext context) {
+        String left = linkedOperand(index - 1, orderedBlocks, context).asText();
+        String right = linkedOperand(index + 1, orderedBlocks, context).asText();
+        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN,
+                Pattern.compile(toLikeRegex(right), Pattern.DOTALL).matcher(left).matches());
+    }
+
+    private BlocklyRenderValue renderLinkedLogicOperation(int index,
+                                                          List<JsonNode> orderedBlocks,
+                                                          BlockRenderContext context) {
+        String operator = linkedOperator(orderedBlocks.get(index), Set.of("AND", "OR"));
+        boolean left = requireLinkedBoolean(linkedOperand(index - 1, orderedBlocks, context),
+                "逻辑运算节点前后必须是布尔值");
+        if ("AND".equals(operator) && !left) {
+            return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, false);
+        }
+        if ("OR".equals(operator) && left) {
+            return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, true);
+        }
+        boolean right = requireLinkedBoolean(linkedOperand(index + 1, orderedBlocks, context),
+                "逻辑运算节点前后必须是布尔值");
+        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN,
+                "AND".equals(operator) ? left && right : left || right);
+    }
+
+    private BlocklyRenderValue renderLinkedLogicNegate(int index,
+                                                       List<JsonNode> orderedBlocks,
+                                                       BlockRenderContext context) {
+        boolean value = requireLinkedBoolean(linkedOperand(index + 1, orderedBlocks, context),
+                "logic_negate 后一个节点必须是 boolean");
+        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, !value);
+    }
+
+    private BlocklyRenderValue renderLinkedAmount(int index,
+                                                  List<JsonNode> orderedBlocks,
+                                                  BlockRenderContext context) {
+        int inputIndex = linkedAdjacentInputIndex(index, orderedBlocks);
+        BigDecimal number = requireLinkedNumber(linkedOperand(inputIndex, orderedBlocks, context),
+                "金额格式化节点相邻节点必须是数值");
+        return new BlocklyRenderValue(BlocklyValueType.STRING,
+                number.setScale(decimalPlaces(orderedBlocks.get(index)), RoundingMode.HALF_UP).toPlainString());
+    }
+
+    private BlocklyRenderValue renderLinkedTime(int index,
+                                                List<JsonNode> orderedBlocks,
+                                                BlockRenderContext context) {
+        int inputIndex = linkedAdjacentInputIndex(index, orderedBlocks);
+        String value = linkedTimeInputText(inputIndex, orderedBlocks, context);
+        String format = linkedTimeFormat(orderedBlocks.get(index));
+        LocalDateTime time = parseLinkedTime(value);
+        DateTimeFormatter formatter = requireLinkedTimeFormatter(format);
+        return new BlocklyRenderValue(BlocklyValueType.STRING, time.format(formatter));
+    }
+
+    private BlocklyRenderValue linkedOperand(int index,
+                                             List<JsonNode> orderedBlocks,
+                                             BlockRenderContext context) {
+        if (index < 0 || index >= orderedBlocks.size()) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "链式节点缺少相邻操作数");
+        }
+        return renderLinkedValue(index, orderedBlocks, context);
+    }
+
+    private List<JsonNode> requireLinkedOrderedBlocks(JsonNode blocklyJson) {
+        JsonNode workspace = blocklyJson.path("workspace");
+        JsonNode order = workspace.get("templateNodeOrder");
+        if (order == null || !order.isArray() || order.isEmpty()) {
+            throw new BizException(ErrorCode.TEMPLATE_EMPTY, "模板内容不能为空");
+        }
+        Map<String, JsonNode> blockIndex = buildBlockIndex(workspace.path("blocks").path("blocks"));
+        List<JsonNode> result = new java.util.ArrayList<>();
+        for (JsonNode idNode : order) {
+            String blockId = text(idNode);
+            if (!StringUtils.hasText(blockId)) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "templateNodeOrder 中的节点ID不能为空");
+            }
+            JsonNode block = blockIndex.get(blockId);
+            if (block == null) {
+                throw new BizException(ErrorCode.PARAM_ERROR,
+                        "templateNodeOrder 引用了不存在的 block id：" + blockId);
+            }
+            result.add(block);
+        }
+        return result;
+    }
+
+    private Map<String, JsonNode> buildBlockIndex(JsonNode topBlocks) {
+        if (topBlocks == null || !topBlocks.isArray()) {
+            return Map.of();
+        }
+        Map<String, JsonNode> result = new java.util.LinkedHashMap<>();
+        for (JsonNode block : topBlocks) {
+            collectBlockIndex(block, result);
+        }
+        return result;
+    }
+
+    private void collectBlockIndex(JsonNode node, Map<String, JsonNode> result) {
+        if (node == null || node.isNull()) {
+            return;
+        }
+        if (node.isObject()) {
+            if (node.has("type")) {
+                String blockId = text(node.get("id"));
+                if (StringUtils.hasText(blockId)) {
+                    result.putIfAbsent(blockId, node);
+                }
+            }
+            Iterator<JsonNode> elements = node.elements();
+            while (elements.hasNext()) {
+                collectBlockIndex(elements.next(), result);
+            }
+            return;
+        }
+        if (node.isArray()) {
+            Iterator<JsonNode> elements = node.elements();
+            while (elements.hasNext()) {
+                collectBlockIndex(elements.next(), result);
+            }
+        }
+    }
+
+    private boolean isLinkedBinaryOperator(String blockType) {
+        return BlocklyBlockTypes.MATH_ARITHMETIC.equals(blockType)
+                || BlocklyBlockTypes.MATH_MODULO.equals(blockType)
+                || BlocklyBlockTypes.LOGIC_COMPARE.equals(blockType)
+                || BlocklyBlockTypes.STRING_CONTAINS.equals(blockType)
+                || BlocklyBlockTypes.STRING_LIKE.equals(blockType)
+                || BlocklyBlockTypes.LOGIC_OPERATION.equals(blockType);
+    }
+
+    private int linkedAdjacentInputIndex(int index, List<JsonNode> orderedBlocks) {
+        if (index > 0) {
+            return index - 1;
+        }
+        if (index < orderedBlocks.size() - 1) {
+            return index + 1;
+        }
+        throw new BizException(ErrorCode.RENDER_FAILED, "格式化节点必须存在相邻输入节点");
+    }
+
+    private String linkedOperator(JsonNode block, Set<String> supported) {
+        String blockType = block.path("type").asText();
+        String operator = text(block.path("extraState").get("operation"));
+        if (!StringUtils.hasText(operator)) {
+            operator = text(block.path("fields").get("OP"));
+        }
+        if (!StringUtils.hasText(operator) || !supported.contains(operator)) {
+            throw new BizException(ErrorCode.RENDER_FAILED, blockType + " " + operator + " 不支持");
+        }
+        return operator;
+    }
+
+    private BigDecimal requireLinkedNumber(BlocklyRenderValue value, String message) {
+        if (value.value() instanceof BigDecimal number) {
+            return number;
+        }
+        String text = value.asText();
+        if (!StringUtils.hasText(text)) {
+            throw new BizException(ErrorCode.RENDER_FAILED, message);
+        }
+        try {
+            return new BigDecimal(text.trim());
+        } catch (NumberFormatException ex) {
+            throw new BizException(ErrorCode.RENDER_FAILED, message);
+        }
+    }
+
+    private boolean requireLinkedBoolean(BlocklyRenderValue value, String message) {
+        if (value.value() instanceof Boolean bool) {
+            return bool;
+        }
+        String text = value.asText();
+        if ("true".equalsIgnoreCase(text)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(text)) {
+            return false;
+        }
+        throw new BizException(ErrorCode.RENDER_FAILED, message);
+    }
+
+    private String linkedTimeFormat(JsonNode block) {
+        String format = text(block.path("extraState").get("format"));
+        if (StringUtils.hasText(format)) {
+            return format;
+        }
+        format = text(block.path("fields").get("FORMAT"));
+        return StringUtils.hasText(format) ? format : "yyyy-MM-dd HH:mm:ss";
+    }
+
+    private LocalDateTime parseLinkedTime(String value) {
+        if (!StringUtils.hasText(value)) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "时间格式化节点相邻节点不能为空");
+        }
+        for (DateTimeFormatter formatter : List.of(
+                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))) {
+            try {
+                return LocalDateTime.parse(value, formatter);
+            } catch (DateTimeParseException ignored) {
+                // 尝试下一种兼容格式。
+            }
+        }
+        try {
+            return LocalDate.parse(value, DateTimeFormatter.ofPattern("yyyy-MM-dd")).atStartOfDay();
+        } catch (DateTimeParseException ignored) {
+            // 尝试 ISO_LOCAL_DATE_TIME。
+        }
+        try {
+            return LocalDateTime.parse(value, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        } catch (DateTimeParseException ignored) {
+            // 统一返回业务错误。
+        }
+        throw new BizException(ErrorCode.RENDER_FAILED,
+                "时间值格式不合法，应为 yyyy-MM-dd HH:mm:ss");
+    }
+
+    private DateTimeFormatter requireLinkedTimeFormatter(String format) {
+        try {
+            return DateTimeFormatter.ofPattern(format);
+        } catch (IllegalArgumentException ex) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "时间格式模板不合法：" + format);
+        }
+    }
+
+    private String linkedTimeInputText(int inputIndex,
+                                       List<JsonNode> orderedBlocks,
+                                       BlockRenderContext context) {
+        JsonNode inputBlock = orderedBlocks.get(inputIndex);
+        if (BlocklyBlockTypes.isSceneParamType(inputBlock.path("type").asText())) {
+            return context.resolveRawParamText(inputBlock);
+        }
+        return linkedOperand(inputIndex, orderedBlocks, context).asText();
+    }
+
     private JsonNode requireContentRoot(JsonNode blocklyJson) {
         JsonNode topBlocks = blocklyJson.path("workspace").path("blocks").path("blocks");
         if (!topBlocks.isArray() || topBlocks.size() != 1
@@ -596,6 +1006,20 @@ public class BlocklyRenderer {
     }
 
     private int decimalPlaces(JsonNode block) {
+        JsonNode decimals = block.path("extraState").get("decimals");
+        if (decimals != null && decimals.canConvertToInt() && decimals.intValue() >= 0) {
+            return decimals.intValue();
+        }
+        if (decimals != null && decimals.isTextual()) {
+            try {
+                int scale = Integer.parseInt(decimals.textValue());
+                if (scale >= 0) {
+                    return scale;
+                }
+            } catch (NumberFormatException ignored) {
+                // 非法精度配置保持兼容，继续尝试旧字段。
+            }
+        }
         JsonNode fields = block.path("fields");
         for (String fieldName : new String[]{"DECIMAL_PLACES", "DECIMALS", "PRECISION"}) {
             JsonNode value = fields.get(fieldName);
@@ -621,6 +1045,16 @@ public class BlocklyRenderer {
             throw new BizException(ErrorCode.RENDER_FAILED,
                     "模板渲染正文不能超过 1MB");
         }
+    }
+
+    private String text(JsonNode node) {
+        return node != null && node.isTextual() ? node.textValue() : null;
+    }
+
+    private boolean isLinkedNodeMode(JsonNode workspace) {
+        return workspace != null
+                && workspace.isObject()
+                && LINKED_NODE_MODE.equals(text(workspace.get("templateNodeMode")));
     }
 
     private BizException unsupported(String blockType) {
