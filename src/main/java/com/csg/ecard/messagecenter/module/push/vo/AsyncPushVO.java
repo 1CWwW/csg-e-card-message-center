@@ -13,6 +13,7 @@ import lombok.Setter;
 @Schema(description = "异步消息推送受理响应")
 public class AsyncPushVO {
 
+    private String pcId;
     private String msgId;
     private AsyncPushStatus status;
 }

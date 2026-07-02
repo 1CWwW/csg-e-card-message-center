@@ -15,5 +15,6 @@ import com.csg.ecard.messagecenter.module.push.dto.SyncPushDTO;
 public record ChannelSendRequest(MsgChannel channel,
                                  SyncPushDTO pushRequest,
                                  String messageContent,
-                                 MessagePriority priority) {
+                                 MessagePriority priority,
+                                 MessageSendInfo sendInfo) {
 }

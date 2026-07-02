@@ -10,12 +10,14 @@ import com.csg.ecard.messagecenter.common.utils.ExceptionStackTraceUtils;
 import com.csg.ecard.messagecenter.common.utils.RedisUtil;
 import com.csg.ecard.messagecenter.module.channel.entity.MsgChannel;
 import com.csg.ecard.messagecenter.module.channel.mapper.MsgChannelMapper;
+import com.csg.ecard.messagecenter.module.push.dto.EmailFileDTO;
 import com.csg.ecard.messagecenter.module.push.dto.SyncPushDTO;
 import com.csg.ecard.messagecenter.module.push.entity.MsgRecord;
 import com.csg.ecard.messagecenter.module.push.enums.SendStatus;
 import com.csg.ecard.messagecenter.module.push.sender.ChannelSendRequest;
 import com.csg.ecard.messagecenter.module.push.sender.ChannelSendResult;
 import com.csg.ecard.messagecenter.module.push.sender.ChannelSenderDispatcher;
+import com.csg.ecard.messagecenter.module.push.sender.MessageSendInfo;
 import com.csg.ecard.messagecenter.module.record.assembler.MessageRecordAssembler;
 import com.csg.ecard.messagecenter.module.record.dto.MessageRecordFilterDTO;
 import com.csg.ecard.messagecenter.module.record.dto.MessageRecordPageQueryDTO;
@@ -34,6 +36,8 @@ import com.csg.ecard.messagecenter.module.scene.entity.MsgSceneParam;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneParamMapper;
 import com.csg.ecard.messagecenter.module.template.entity.MsgTemplate;
 import com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,6 +63,8 @@ public class MessageRecordServiceImpl implements MessageRecordService {
     private static final int EXPORT_LIMIT = 10_000;
     private static final Duration RESEND_LOCK_TTL = Duration.ofMinutes(2);
     private static final String RESEND_LOCK_PREFIX = "msg:record:resend:";
+    private static final TypeReference<List<EmailFileDTO>> EMAIL_FILE_LIST_TYPE = new TypeReference<>() {
+    };
 
     private final MessageRecordMapper messageRecordMapper;
     private final MsgSceneParamMapper msgSceneParamMapper;
@@ -67,6 +73,7 @@ public class MessageRecordServiceImpl implements MessageRecordService {
     private final ChannelSenderDispatcher channelSenderDispatcher;
     private final RedisUtil redisUtil;
     private final MessageRecordAssembler assembler;
+    private final ObjectMapper objectMapper;
 
     @Override
     public MessageRecordOverviewVO overview() {
@@ -181,13 +188,29 @@ public class MessageRecordServiceImpl implements MessageRecordService {
             request.setUserId(record.getUserId());
             request.setUserOrgId(record.getUserOrgId());
             request.setBizId(record.getBizId());
+            request.setRegisterXtbs(record.getRegisterXtbs());
+            request.setType(record.getNoticeType());
+            request.setTitle(record.getTitle());
+            request.setUrl(record.getUrl());
+            request.setScheduleTime(record.getScheduleTime());
+            request.setSenderUserId(record.getSenderUserId());
+            request.setElinkUserId(record.getElinkUserId());
+            request.setUserPhone(record.getReceivePhone());
+            request.setUserEmail(record.getReceiveEmail());
+            request.setEmailId(record.getEmailId());
+            request.setSenderEmail(record.getSenderEmail());
+            request.setSenderEmailPassword(record.getSenderEmailPassword());
+            request.setSenderEmailUrl(record.getSenderEmailUrl());
+            request.setCopyEmails(splitEmails(record.getCopyEmail()));
+            request.setFile(parseEmailFiles(record.getFile()));
             request.setPriority(record.getPriority() == null
                     ? MessagePriority.NORMAL
                     : record.getPriority());
+            MessageSendInfo sendInfo = buildSendInfo(record, channelType);
             sendResult = channelSenderDispatcher.dispatch(
                     channel.getChannelType(),
                     new ChannelSendRequest(
-                            channel, request, record.getMessageContent(), request.getPriority()));
+                            channel, request, record.getMessageContent(), request.getPriority(), sendInfo));
         } catch (RuntimeException ex) {
             sendResult = ChannelSendResult.failedNonRetryable(messageOf(ex));
             if (!(ex instanceof BizException)) {
@@ -226,16 +249,75 @@ public class MessageRecordServiceImpl implements MessageRecordService {
         }
     }
 
+    private MessageSendInfo buildSendInfo(MsgRecord record, ChannelType channelType) {
+        return MessageSendInfo.builder()
+                .pcId(record.getPcId())
+                .msgInfoId(record.getId() == null ? null : String.valueOf(record.getId()))
+                .msgId(record.getMsgId())
+                .registerCode(record.getRegisterCode())
+                .registerName(record.getRegisterName())
+                .registerXtbs(record.getRegisterXtbs())
+                .msgType(externalMsgType(channelType))
+                .type(record.getNoticeType())
+                .content(record.getMessageContent())
+                .url(record.getUrl())
+                .sendUserId(record.getSenderUserId())
+                .sendTime(LocalDateTime.now())
+                .receiveUserId(record.getReceiveUserId())
+                .receiveCorpId(record.getReceiveCorpId())
+                .receivePhone(record.getReceivePhone())
+                .receiveEmail(record.getReceiveEmail())
+                .emailId(record.getEmailId())
+                .senderEmail(record.getSenderEmail())
+                .senderEmailPassword(record.getSenderEmailPassword())
+                .senderEmailUrl(record.getSenderEmailUrl())
+                .copyEmails(splitEmails(record.getCopyEmail()))
+                .files(parseEmailFiles(record.getFile()))
+                .title(record.getTitle())
+                .elinkUserid(record.getElinkUserId())
+                .build();
+    }
+
+    private List<String> splitEmails(String emails) {
+        if (!StringUtils.hasText(emails)) {
+            return List.of();
+        }
+        return List.of(emails.split(",")).stream()
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .toList();
+    }
+
+    private List<EmailFileDTO> parseEmailFiles(String files) {
+        if (!StringUtils.hasText(files)) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(files, EMAIL_FILE_LIST_TYPE);
+        } catch (Exception ex) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "邮件附件JSON解析失败");
+        }
+    }
+
+    private String externalMsgType(ChannelType channelType) {
+        return switch (channelType) {
+            case SMS -> "sms";
+            case EMAIL -> "email";
+            case ELINK -> "elink";
+            case IN_APP -> "sym";
+        };
+    }
+
     private void validateHistoricalRecipient(ChannelType channelType, MsgRecord record) {
-        if (channelType == ChannelType.SMS) {
+        if (channelType == ChannelType.SMS && !StringUtils.hasText(record.getReceivePhone())) {
             throw new BizException(ErrorCode.CHANNEL_SEND_FAILED,
                     "历史记录未保存手机号，当前无法执行短信重发");
         }
-        if (channelType == ChannelType.EMAIL) {
+        if (channelType == ChannelType.EMAIL && !StringUtils.hasText(record.getReceiveEmail())) {
             throw new BizException(ErrorCode.CHANNEL_SEND_FAILED,
                     "历史记录未保存邮箱，当前无法执行邮件重发");
         }
-        if (channelType == ChannelType.ELINK && !StringUtils.hasText(record.getUserId())) {
+        if (channelType == ChannelType.ELINK && !StringUtils.hasText(record.getReceiveUserId())) {
             throw new BizException(ErrorCode.CHANNEL_SEND_FAILED, "历史记录缺少用户ID，无法执行eLink重发");
         }
     }

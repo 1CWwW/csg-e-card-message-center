@@ -48,7 +48,7 @@ CREATE TABLE msg_scene_param
     id          BIGINT        NOT NULL,
     scene_id    BIGINT        NOT NULL,
     param_name  VARCHAR(64)   NOT NULL,
-    param_label VARCHAR(20)   NOT NULL,
+    param_label VARCHAR(200)  NOT NULL,
     param_type  VARCHAR(32)   NOT NULL,
     sort_order  INT           NOT NULL,
     is_required INT DEFAULT 0 NOT NULL,
@@ -234,9 +234,9 @@ CREATE INDEX idx_msg_template_scene_name ON msg_template (scene_id, template_nam
 
 CREATE TABLE msg_template_unit
 (
-    id          BIGINT      NOT NULL,
-    template_id BIGINT      NOT NULL,
-    unit_id     VARCHAR(64) NOT NULL,
+    id          BIGINT                              NOT NULL,
+    template_id BIGINT                              NOT NULL,
+    unit_id     VARCHAR(64)                         NOT NULL,
     create_by   VARCHAR(64),
     create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
 
@@ -265,33 +265,54 @@ CREATE INDEX idx_msg_template_unit_unit_id ON msg_template_unit (unit_id);
 
 CREATE TABLE msg_record
 (
-    id              BIGINT                              NOT NULL,
-    msg_id          VARCHAR(64)                         NOT NULL,
+    id              BIGINT                                NOT NULL,
+    pc_id           VARCHAR(64)                           NOT NULL,
+    msg_id          VARCHAR(64)                           NOT NULL,
     biz_id          VARCHAR(128),
-    scene_code      VARCHAR(64)                         NOT NULL,
-    template_id     BIGINT                              NOT NULL,
+    scene_code      VARCHAR(64)                           NOT NULL,
+    register_code   VARCHAR(64),
+    register_name   VARCHAR(128),
+    register_xtbs   VARCHAR(64),
+    msg_type        VARCHAR(32),
+    notice_type     VARCHAR(32),
+    title           VARCHAR(256),
+    url             VARCHAR(1000),
+    schedule_time   TIMESTAMP,
+    template_id     BIGINT                                NOT NULL,
     channel_id      BIGINT,
-    scene_params    CLOB                                NOT NULL,
+    scene_params    CLOB                                  NOT NULL,
     message_content CLOB,
-    user_id         VARCHAR(128)                        NOT NULL,
-    user_org_id     VARCHAR(128)                        NOT NULL,
-    priority        VARCHAR(16) DEFAULT 'NORMAL'        NOT NULL,
-    call_type       VARCHAR(16)                         NOT NULL,
-    send_status     VARCHAR(16)                         NOT NULL,
+    user_id         VARCHAR(128)                          NOT NULL,
+    user_org_id     VARCHAR(128)                          NOT NULL,
+    receive_user_id VARCHAR(128),
+    receive_corp_id VARCHAR(128),
+    receive_phone   VARCHAR(32),
+    receive_email   VARCHAR(128),
+    email_id        VARCHAR(128),
+    sender_email    VARCHAR(128),
+    sender_email_password VARCHAR(256),
+    sender_email_url VARCHAR(256),
+    copy_email      CLOB,
+    file            CLOB,
+    sender_user_id  VARCHAR(128),
+    elink_user_id   VARCHAR(128),
+    priority        VARCHAR(16) DEFAULT 'NORMAL'          NOT NULL,
+    call_type       VARCHAR(16)                           NOT NULL,
+    send_status     VARCHAR(16)                           NOT NULL,
     error_msg       VARCHAR(1000),
     error_stack     CLOB,
     send_time       TIMESTAMP,
     create_by       VARCHAR(64),
-    create_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    create_time     TIMESTAMP   DEFAULT CURRENT_TIMESTAMP NOT NULL,
     update_by       VARCHAR(64),
-    update_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    deleted         INT       DEFAULT 0                 NOT NULL,
+    update_time     TIMESTAMP   DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted         INT         DEFAULT 0                 NOT NULL,
 
     CONSTRAINT pk_msg_record
         PRIMARY KEY (id),
 
     CONSTRAINT ck_msg_record_send_status
-        CHECK (send_status IN ('SUCCESS', 'FAILED')),
+        CHECK (send_status IN ('PENDING', 'SENDING', 'SUCCESS', 'FAILED')),
 
     CONSTRAINT ck_msg_record_priority
         CHECK (priority IN ('HIGH', 'NORMAL', 'LOW')),
@@ -303,29 +324,97 @@ CREATE TABLE msg_record
         CHECK (deleted IN (0, 1))
 );
 
-COMMENT ON TABLE msg_record IS '消息发送记录表';
-COMMENT ON COLUMN msg_record.id IS '主键ID';
-COMMENT ON COLUMN msg_record.msg_id IS '消息ID，同次推送共用';
-COMMENT ON COLUMN msg_record.biz_id IS '业务幂等ID';
-COMMENT ON COLUMN msg_record.scene_code IS '场景编码';
-COMMENT ON COLUMN msg_record.template_id IS '模板ID';
-COMMENT ON COLUMN msg_record.channel_id IS '渠道ID，未匹配到渠道时为空';
-COMMENT ON COLUMN msg_record.scene_params IS '场景参数JSON';
-COMMENT ON COLUMN msg_record.message_content IS '渲染后的消息正文';
-COMMENT ON COLUMN msg_record.user_id IS '用户ID';
-COMMENT ON COLUMN msg_record.user_org_id IS '用户单位ID';
-COMMENT ON COLUMN msg_record.priority IS '消息业务优先级：HIGH、NORMAL、LOW';
-COMMENT ON COLUMN msg_record.call_type IS '消息原始调用方式：SYNC同步、ASYNC异步';
-COMMENT ON COLUMN msg_record.send_status IS '发送状态：SUCCESS成功，FAILED失败';
-COMMENT ON COLUMN msg_record.error_msg IS '发送失败原因';
-COMMENT ON COLUMN msg_record.error_stack IS '最近一次实际发送失败产生的技术异常堆栈';
-COMMENT ON COLUMN msg_record.send_time IS '最近一次实际发送尝试完成时间';
-COMMENT ON COLUMN msg_record.create_by IS '创建人';
-COMMENT ON COLUMN msg_record.create_time IS '创建时间';
-COMMENT ON COLUMN msg_record.update_by IS '更新人';
-COMMENT ON COLUMN msg_record.update_time IS '更新时间';
-COMMENT ON COLUMN msg_record.deleted IS '逻辑删除标记：0正常，1删除';
+COMMENT
+ON TABLE msg_record IS '消息发送记录表';
+COMMENT
+ON COLUMN msg_record.id IS '主键ID';
+COMMENT
+ON COLUMN msg_record.biz_id IS '业务幂等ID';
+COMMENT
+ON COLUMN msg_record.scene_code IS '场景编码';
+COMMENT
+ON COLUMN msg_record.template_id IS '模板ID';
+COMMENT
+ON COLUMN msg_record.channel_id IS '渠道ID，未匹配到渠道时为空';
+COMMENT
+ON COLUMN msg_record.scene_params IS '场景参数JSON';
+COMMENT
+ON COLUMN msg_record.message_content IS '渲染后的消息正文';
+COMMENT
+ON COLUMN msg_record.user_id IS '用户ID';
+COMMENT
+ON COLUMN msg_record.user_org_id IS '用户单位ID';
+COMMENT
+ON COLUMN msg_record.priority IS '消息业务优先级：HIGH、NORMAL、LOW';
+COMMENT
+ON COLUMN msg_record.call_type IS '消息原始调用方式：SYNC同步、ASYNC异步';
+COMMENT
+ON COLUMN msg_record.error_msg IS '发送失败原因';
+COMMENT
+ON COLUMN msg_record.error_stack IS '最近一次实际发送失败产生的技术异常堆栈';
+COMMENT
+ON COLUMN msg_record.send_time IS '最近一次实际发送尝试完成时间';
+COMMENT
+ON COLUMN msg_record.create_by IS '创建人';
+COMMENT
+ON COLUMN msg_record.create_time IS '创建时间';
+COMMENT
+ON COLUMN msg_record.update_by IS '更新人';
+COMMENT
+ON COLUMN msg_record.update_time IS '更新时间';
+COMMENT
+ON COLUMN msg_record.deleted IS '逻辑删除标记：0正常，1删除';
 
+COMMENT
+ON COLUMN msg_record.pc_id IS '消息批次ID，同一次推送共用';
+COMMENT
+ON COLUMN msg_record.msg_id IS '单条发送消息ID';
+COMMENT
+ON COLUMN msg_record.register_code IS '消息编码';
+COMMENT
+ON COLUMN msg_record.register_name IS '消息名称';
+COMMENT
+ON COLUMN msg_record.register_xtbs IS '消息系统标识';
+COMMENT
+ON COLUMN msg_record.msg_type IS '消息类型，SMS/EMAIL/ELINK对应小写类型，IN_APP对应sym';
+COMMENT
+ON COLUMN msg_record.notice_type IS '站内信通知类型';
+COMMENT
+ON COLUMN msg_record.title IS '邮件/eLink/站内信标题';
+COMMENT
+ON COLUMN msg_record.url IS '跳转链接';
+COMMENT
+ON COLUMN msg_record.schedule_time IS '预计发送时间，空表示立即发送';
+COMMENT
+ON COLUMN msg_record.receive_user_id IS '接收人ID';
+COMMENT
+ON COLUMN msg_record.receive_corp_id IS '接收人单位ID';
+COMMENT
+ON COLUMN msg_record.receive_phone IS '接收人手机号';
+COMMENT
+ON COLUMN msg_record.receive_email IS '接收人邮箱';
+COMMENT
+ON COLUMN msg_record.sender_user_id IS '发送人ID';
+COMMENT
+ON COLUMN msg_record.elink_user_id IS 'eLink用户ID';
+
+COMMENT
+ON COLUMN msg_record.email_id IS '邮件ID，同一邮件ID的邮件记录聚合为一封邮件发送';
+COMMENT
+ON COLUMN msg_record.sender_email IS '发送人邮箱';
+COMMENT
+ON COLUMN msg_record.sender_email_password IS '发送邮箱密码';
+COMMENT
+ON COLUMN msg_record.sender_email_url IS '发送邮箱服务器';
+COMMENT
+ON COLUMN msg_record.copy_email IS '邮件抄送邮箱，逗号分隔';
+COMMENT
+ON COLUMN msg_record.file IS '邮件附件JSON';
+COMMENT
+ON COLUMN msg_record.send_status IS '发送状态：PENDING待发送、SENDING发送中、SUCCESS成功、FAILED失败';
+
+CREATE INDEX idx_msg_record_pc_id ON msg_record (pc_id);
+CREATE INDEX idx_msg_record_pc_template_user ON msg_record (pc_id, template_id, user_id);
 CREATE INDEX idx_msg_record_msg_id ON msg_record (msg_id);
 CREATE INDEX idx_msg_record_biz_id ON msg_record (biz_id);
 CREATE INDEX idx_msg_record_scene_code ON msg_record (scene_code);
@@ -337,3 +426,5 @@ CREATE INDEX idx_msg_record_priority ON msg_record (priority);
 CREATE INDEX idx_msg_record_call_type ON msg_record (call_type);
 CREATE INDEX idx_msg_record_send_status ON msg_record (send_status);
 CREATE INDEX idx_msg_record_send_time ON msg_record (send_time);
+CREATE INDEX idx_msg_record_schedule_time ON msg_record (schedule_time);
+CREATE INDEX idx_msg_record_pc_msg_type_email ON msg_record (pc_id, msg_type, email_id);

@@ -52,3 +52,33 @@ xxl:
     admin:
       addresses: ${XXL_JOB_ADMIN_ADDRESSES}
     accessToken: ${XXL_JOB_ACCESS_TOKEN}
+
+app:
+  message-send:
+    sms:
+      enabled: ${MESSAGE_SEND_SMS_ENABLED:false}
+      xxpt-type: ${MESSAGE_SEND_SMS_XXPT_TYPE:NANWANG}
+      base-url: ${MESSAGE_SEND_SMS_BASE_URL:}
+      authorization: ${MESSAGE_SEND_SMS_AUTHORIZATION:}
+    email:
+      enabled: ${MESSAGE_SEND_EMAIL_ENABLED:false}
+      host: ${MESSAGE_SEND_EMAIL_HOST:}
+      port: ${MESSAGE_SEND_EMAIL_PORT:}
+      username: ${MESSAGE_SEND_EMAIL_USERNAME:}
+      password: ${MESSAGE_SEND_EMAIL_PASSWORD:}
+      protocol: ${MESSAGE_SEND_EMAIL_PROTOCOL:smtp}
+      auth: ${MESSAGE_SEND_EMAIL_AUTH:true}
+      starttls-enable: ${MESSAGE_SEND_EMAIL_STARTTLS_ENABLE:false}
+    elink:
+      enabled: ${MESSAGE_SEND_ELINK_ENABLED:true}
+      base-url: ${MESSAGE_SEND_ELINK_BASE_URL:https://10.92.185.218:443/cgi-bin}
+      token-path: ${MESSAGE_SEND_ELINK_TOKEN_PATH:gettoken}
+      send-msg-path: ${MESSAGE_SEND_ELINK_SEND_MSG_PATH:message/send}
+      app-id: ${MESSAGE_SEND_ELINK_APP_ID:wl3709e1de3c}
+      secret: ${MESSAGE_SEND_ELINK_SECRET:vdmdRC35JQw_y_RGCHAEhk__7OmtJe4jof1J_QbgGdo}
+      agent-id: ${MESSAGE_SEND_ELINK_AGENT_ID:1000953}
+      connect-timeout: ${MESSAGE_SEND_ELINK_CONNECT_TIMEOUT:2s}
+      read-timeout: ${MESSAGE_SEND_ELINK_READ_TIMEOUT:5s}
+    in-app:
+      enabled: ${MESSAGE_SEND_IN_APP_ENABLED:false}
+      notification-url: ${MESSAGE_SEND_IN_APP_NOTIFICATION_URL:}

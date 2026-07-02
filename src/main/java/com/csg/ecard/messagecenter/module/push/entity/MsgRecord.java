@@ -19,15 +19,36 @@ import java.time.LocalDateTime;
 @TableName("msg_record")
 public class MsgRecord extends BaseEntity {
 
+    private String pcId;
     private String msgId;
     private String bizId;
     private String sceneCode;
+    private String registerCode;
+    private String registerName;
+    private String registerXtbs;
+    private String msgType;
+    private String noticeType;
+    private String title;
+    private String url;
+    private LocalDateTime scheduleTime;
     private Long templateId;
     private Long channelId;
     private String sceneParams;
     private String messageContent;
     private String userId;
     private String userOrgId;
+    private String receiveUserId;
+    private String receiveCorpId;
+    private String receivePhone;
+    private String receiveEmail;
+    private String emailId;
+    private String senderEmail;
+    private String senderEmailPassword;
+    private String senderEmailUrl;
+    private String copyEmail;
+    private String file;
+    private String senderUserId;
+    private String elinkUserId;
     private MessagePriority priority;
     private MessageCallType callType;
     private String sendStatus;

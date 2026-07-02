@@ -65,6 +65,8 @@ app:
   idempotent:
     key-prefix: "idem:"
     default-ttl-seconds: 300
+  message-schedule:
+    batch-size: ${MESSAGE_SCHEDULE_BATCH_SIZE:100}
 
 xxl:
   job:

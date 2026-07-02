@@ -16,6 +16,7 @@ import java.util.List;
 @Schema(description = "同步消息推送响应")
 public class SyncPushVO {
 
+    private String pcId;
     private String msgId;
     private PushStatus status;
     private List<ChannelResultVO> channelResults = new ArrayList<>();
