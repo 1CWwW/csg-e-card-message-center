@@ -23,18 +23,18 @@ public class ChannelMatcherImpl implements ChannelMatcher {
     @Override
     public Optional<MsgChannel> match(String channelType, List<String> unitPath) {
         ChannelType type = ChannelType.fromCode(channelType);
-        if (unitPath == null || unitPath.isEmpty()) {
-            return Optional.empty();
-        }
-        for (String unitId : unitPath) {
-            if (!StringUtils.hasText(unitId)) {
-                continue;
+        if (unitPath != null && !unitPath.isEmpty()) {
+            for (String unitId : unitPath) {
+                if (!StringUtils.hasText(unitId)) {
+                    continue;
+                }
+                List<MsgChannel> candidates = msgChannelMapper.selectEnabledCandidates(type.getCode(), unitId.trim());
+                if (candidates != null && !candidates.isEmpty()) {
+                    return Optional.of(candidates.get(0));
+                }
             }
-            List<MsgChannel> candidates = msgChannelMapper.selectEnabledCandidates(type.getCode(), unitId.trim());
-            if (candidates != null && !candidates.isEmpty()) {
-                return Optional.of(candidates.get(0));
-            }
         }
-        return Optional.empty();
+        List<MsgChannel> defaults = msgChannelMapper.selectEnabledDefaultCandidates(type.getCode());
+        return defaults == null || defaults.isEmpty() ? Optional.empty() : Optional.of(defaults.get(0));
     }
 }

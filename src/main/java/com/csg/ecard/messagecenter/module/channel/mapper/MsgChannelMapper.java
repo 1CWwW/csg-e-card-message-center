@@ -65,4 +65,24 @@ public interface MsgChannelMapper extends BaseMapper<MsgChannel> {
     })
     List<MsgChannel> selectEnabledCandidates(@Param("channelType") String channelType,
                                              @Param("unitId") String unitId);
+
+    /**
+     * 查询未配置适用单位的默认启用渠道。
+     *
+     * @param channelType 渠道类型
+     * @return 默认渠道候选
+     */
+    @Select({
+            "SELECT c.*",
+            "FROM msg_channel c",
+            "WHERE c.deleted = 0",
+            "AND c.status = 1",
+            "AND c.channel_type = #{channelType}",
+            "AND NOT EXISTS (",
+            "  SELECT 1 FROM msg_channel_unit cu",
+            "  WHERE cu.channel_id = c.id",
+            ")",
+            "ORDER BY c.priority ASC, c.create_time ASC, c.id ASC"
+    })
+    List<MsgChannel> selectEnabledDefaultCandidates(@Param("channelType") String channelType);
 }

@@ -106,11 +106,37 @@ public interface MsgTemplateMapper extends BaseMapper<MsgTemplate> {
     List<MsgTemplate> selectContentTemplatesBySceneId(@Param("sceneId") Long sceneId);
 
     /**
-     * 查询场景下启用、内容有效且适用于指定单位的模板。
+     * 查询指定单位专属的可用模板。
      *
-     * @param sceneId 场景ID
-     * @param unitId  用户单位ID
-     * @return 可用于推送的模板
+     * @param sceneId     场景ID
+     * @param channelType 渠道类型
+     * @param unitId      单位ID
+     * @return 单位专属模板
+     */
+    @Select({
+            "SELECT t.id, t.template_name, t.scene_id, t.channel_type, t.blockly_json,",
+            "t.status, t.create_time, t.update_time",
+            "FROM msg_template t",
+            "JOIN msg_template_unit tu ON tu.template_id = t.id",
+            "WHERE t.scene_id = #{sceneId}",
+            "AND t.deleted = 0",
+            "AND t.status = 1",
+            "AND t.channel_type = #{channelType}",
+            "AND t.blockly_json IS NOT NULL",
+            "AND LENGTH(TRIM(t.blockly_json)) > 0",
+            "AND tu.unit_id = #{unitId}",
+            "ORDER BY t.create_time ASC, t.id ASC"
+    })
+    List<MsgTemplate> selectEnabledUnitTemplates(@Param("sceneId") Long sceneId,
+                                                 @Param("channelType") String channelType,
+                                                 @Param("unitId") String unitId);
+
+    /**
+     * 查询未配置适用单位的默认可用模板。
+     *
+     * @param sceneId     场景ID
+     * @param channelType 渠道类型
+     * @return 默认模板
      */
     @Select({
             "SELECT t.id, t.template_name, t.scene_id, t.channel_type, t.blockly_json,",
@@ -119,19 +145,17 @@ public interface MsgTemplateMapper extends BaseMapper<MsgTemplate> {
             "WHERE t.scene_id = #{sceneId}",
             "AND t.deleted = 0",
             "AND t.status = 1",
+            "AND t.channel_type = #{channelType}",
             "AND t.blockly_json IS NOT NULL",
             "AND LENGTH(TRIM(t.blockly_json)) > 0",
-            "AND (",
-            "  NOT EXISTS (SELECT 1 FROM msg_template_unit tu WHERE tu.template_id = t.id)",
-            "  OR EXISTS (",
-            "    SELECT 1 FROM msg_template_unit tu",
-            "    WHERE tu.template_id = t.id AND tu.unit_id = #{unitId}",
-            "  )",
+            "AND NOT EXISTS (",
+            "  SELECT 1 FROM msg_template_unit tu",
+            "  WHERE tu.template_id = t.id",
             ")",
             "ORDER BY t.create_time ASC, t.id ASC"
     })
-    List<MsgTemplate> selectEnabledApplicableTemplates(@Param("sceneId") Long sceneId,
-                                                       @Param("unitId") String unitId);
+    List<MsgTemplate> selectEnabledDefaultTemplates(@Param("sceneId") Long sceneId,
+                                                    @Param("channelType") String channelType);
 
     /**
      * 查询参考模板候选，场景和单位数量在同一查询中返回。

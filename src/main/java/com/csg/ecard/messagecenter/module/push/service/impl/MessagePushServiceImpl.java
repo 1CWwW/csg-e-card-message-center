@@ -500,8 +500,8 @@ public class MessagePushServiceImpl implements MessagePushService {
         Map<Long, MsgSceneParam> paramMap = sceneParams.stream()
                 .collect(Collectors.toMap(MsgSceneParam::getId, item -> item));
 
-        List<MsgTemplate> templates = msgTemplateMapper.selectEnabledApplicableTemplates(
-                scene.getId(), request.getUserOrgId());
+        List<String> unitPath = resolveUnitPath(request.getUserOrgId());
+        List<MsgTemplate> templates = matchTemplates(scene.getId(), unitPath);
         if (pendingTemplateIds != null && !pendingTemplateIds.isEmpty()) {
             Set<Long> pendingIds = Set.copyOf(pendingTemplateIds);
             templates = templates.stream()
@@ -509,10 +509,9 @@ public class MessagePushServiceImpl implements MessagePushService {
                     .toList();
         }
         if (templates.isEmpty()) {
-            throw MessagePushException.badRequest("场景下无可用模板（含单位过滤后无匹配模板）");
+            throw MessagePushException.badRequest("当前场景下，接收人所属单位、上级单位及默认配置中均未找到可用模板");
         }
 
-        List<String> unitPath = unitPathResolver.resolve(request.getUserOrgId());
         Map<Long, Optional<MsgChannel>> matchedChannels = new LinkedHashMap<>();
         for (MsgTemplate template : templates) {
             matchedChannels.put(template.getId(),
@@ -520,7 +519,7 @@ public class MessagePushServiceImpl implements MessagePushService {
         }
         if (matchedChannels.values().stream().allMatch(Optional::isEmpty)) {
             throw MessagePushException.badRequest(
-                    "用户所属单位及上级单位均未配置" + templates.get(0).getChannelType() + "类型渠道");
+                    "模板已匹配，但接收人所属单位、上级单位及默认配置中均未找到对应类型的启用渠道");
         }
 
         SyncPushVO response = new SyncPushVO();
@@ -540,6 +539,51 @@ public class MessagePushServiceImpl implements MessagePushService {
         }
         response.setStatus(summarize(response.getChannelResults()));
         return new CoreExecutionResult(response, retryTemplateIds);
+    }
+
+    /**
+     * 按渠道类型分别执行单位逐级模板匹配，路径未命中时再使用默认模板。
+     */
+    private List<MsgTemplate> matchTemplates(Long sceneId, List<String> unitPath) {
+        List<MsgTemplate> result = new ArrayList<>();
+        for (ChannelType channelType : ChannelType.values()) {
+            result.addAll(matchTemplatesByChannelType(sceneId, channelType.getCode(), unitPath));
+        }
+        return result;
+    }
+
+    private List<MsgTemplate> matchTemplatesByChannelType(Long sceneId, String channelType, List<String> unitPath) {
+        for (String unitId : safeUnitPath(unitPath)) {
+            List<MsgTemplate> templates = msgTemplateMapper.selectEnabledUnitTemplates(sceneId, channelType, unitId);
+            if (templates != null && !templates.isEmpty()) {
+                return templates;
+            }
+        }
+        List<MsgTemplate> defaults = msgTemplateMapper.selectEnabledDefaultTemplates(sceneId, channelType);
+        return defaults == null ? List.of() : defaults;
+    }
+
+    private List<String> resolveUnitPath(String userOrgId) {
+        if (!StringUtils.hasText(userOrgId)) {
+            return List.of();
+        }
+        try {
+            return safeUnitPath(unitPathResolver.resolve(userOrgId.trim()));
+        } catch (RuntimeException ex) {
+            log.warn("Resolve unit path failed. userOrgId={}, cause={}", userOrgId, ex.getMessage());
+            return List.of();
+        }
+    }
+
+    private List<String> safeUnitPath(List<String> unitPath) {
+        if (unitPath == null || unitPath.isEmpty()) {
+            return List.of();
+        }
+        return unitPath.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .toList();
     }
 
     private TemplateExecutionResult processTemplate(String pcId,
@@ -567,7 +611,7 @@ public class MessagePushServiceImpl implements MessagePushService {
             ChannelType channelType = ChannelType.fromCode(template.getChannelType());
             if (matchedChannel.isEmpty()) {
                 throw new BizException(ErrorCode.CHANNEL_SEND_FAILED,
-                        "用户所属单位及上级单位均未配置" + channelType.getCode() + "类型渠道");
+                        "模板已匹配，但接收人所属单位、上级单位及默认配置中均未找到对应类型的启用渠道");
             }
             channel = matchedChannel.get();
             result.setChannelName(channel.getChannelName());
@@ -1287,7 +1331,7 @@ public class MessagePushServiceImpl implements MessagePushService {
         if (!StringUtils.hasText(request.getUserOrgId())) {
             request.setUserOrgId(request.getReceiveCorpId());
         }
-        request.setUserOrgId(request.getUserOrgId().trim());
+        request.setUserOrgId(trimToNull(request.getUserOrgId()));
         request.setBizId(trimToNull(request.getBizId()));
         request.setRegisterXtbs(trimToNull(request.getRegisterXtbs()));
         request.setType(trimToNull(request.getType()));

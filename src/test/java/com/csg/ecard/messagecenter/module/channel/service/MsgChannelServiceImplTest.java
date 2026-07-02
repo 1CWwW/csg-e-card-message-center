@@ -157,12 +157,21 @@ class MsgChannelServiceImplTest {
     }
 
     @Test
-    void shouldRejectEmptyUnitIds() {
+    void shouldCreateAllApplicableChannelWhenUnitIdsEmpty() {
         ChannelCreateDTO request = smsCreateRequest();
         request.setUnitIds(List.of(" ", ""));
+        when(msgChannelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(msgChannelMapper.insert(any(MsgChannel.class))).thenAnswer(invocation -> {
+            MsgChannel channel = invocation.getArgument(0);
+            channel.setId(1L);
+            return 1;
+        });
 
-        assertThatThrownBy(() -> msgChannelService.create(request))
-                .isInstanceOf(BizException.class);
+        MsgChannelVO result = msgChannelService.create(request);
+
+        assertThat(result.getUnitIds()).isEmpty();
+        assertThat(result.getUnitCount()).isZero();
+        verify(msgChannelUnitMapper, never()).insert(any(MsgChannelUnit.class));
     }
 
     @Test

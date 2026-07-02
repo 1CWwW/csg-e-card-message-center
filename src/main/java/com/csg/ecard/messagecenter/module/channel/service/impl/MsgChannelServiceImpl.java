@@ -240,15 +240,12 @@ public class MsgChannelServiceImpl implements MsgChannelService {
 
     private List<String> normalizeUnitIds(List<String> unitIds) {
         if (unitIds == null) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "适用单位不能为空");
+            return List.of();
         }
         Set<String> normalized = unitIds.stream()
                 .filter(StringUtils::hasText)
                 .map(String::trim)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        if (normalized.isEmpty()) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "适用单位不能为空");
-        }
         return List.copyOf(normalized);
     }
 
