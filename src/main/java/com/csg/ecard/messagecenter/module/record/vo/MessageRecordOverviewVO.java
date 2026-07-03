@@ -23,7 +23,7 @@ public class MessageRecordOverviewVO {
     @Schema(description = "今日失败记录数")
     private long todayFailed;
 
-    @Schema(description = "今日待处理记录数；当前状态仅有SUCCESS、FAILED，因此为0")
+    @Schema(description = "今日待处理记录数，包含PENDING和ACCEPTED")
     private long todayPending;
 
     @Schema(description = "今日成功率，百分比，保留1位小数")

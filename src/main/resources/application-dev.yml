@@ -57,3 +57,7 @@ xxl:
     admin:
       addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://localhost:8081/xxl-job-admin}
     accessToken: ${XXL_JOB_ACCESS_TOKEN:}
+
+app:
+  redis:
+    enabled: ${APP_REDIS_ENABLED:false}

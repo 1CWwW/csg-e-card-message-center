@@ -61,6 +61,8 @@ public class MessageRecordDetailVO {
     private String templateChannelTypeDesc;
     private String sendStatus;
     private String sendStatusDesc;
+    private Integer resendCount;
+    private Integer maxResendCount;
     private String errorMsg;
 
     @Schema(description = "最近一次技术异常堆栈，仅用于技术排障，可能为空且仅详情接口返回")

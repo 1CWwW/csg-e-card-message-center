@@ -1,6 +1,7 @@
 package com.csg.ecard.messagecenter.config.redis;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -14,6 +15,7 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
  * 统一 RedisTemplate 的 key/value 序列化方式，避免默认 JDK 序列化带来的可读性和跨语言兼容问题。
  */
 @Configuration
+@ConditionalOnProperty(prefix = "app.redis", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class RedisConfig {
 
     /**

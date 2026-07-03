@@ -13,5 +13,6 @@ public class MessageRecordOverviewRow {
     private Long todayTotal;
     private Long todaySuccess;
     private Long todayFailed;
+    private Long todayPending;
     private Long yesterdayTotal;
 }

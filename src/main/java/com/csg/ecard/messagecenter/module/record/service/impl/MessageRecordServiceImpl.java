@@ -2,12 +2,14 @@ package com.csg.ecard.messagecenter.module.record.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.csg.ecard.messagecenter.common.constant.CommonConstants;
 import com.csg.ecard.messagecenter.common.enums.ChannelType;
 import com.csg.ecard.messagecenter.common.enums.ErrorCode;
 import com.csg.ecard.messagecenter.common.enums.MessagePriority;
 import com.csg.ecard.messagecenter.common.exception.BizException;
 import com.csg.ecard.messagecenter.common.utils.ExceptionStackTraceUtils;
 import com.csg.ecard.messagecenter.common.utils.RedisUtil;
+import com.csg.ecard.messagecenter.framework.context.CurrentUserContext;
 import com.csg.ecard.messagecenter.module.channel.entity.MsgChannel;
 import com.csg.ecard.messagecenter.module.channel.mapper.MsgChannelMapper;
 import com.csg.ecard.messagecenter.module.push.dto.EmailFileDTO;
@@ -21,16 +23,19 @@ import com.csg.ecard.messagecenter.module.push.sender.MessageSendInfo;
 import com.csg.ecard.messagecenter.module.record.assembler.MessageRecordAssembler;
 import com.csg.ecard.messagecenter.module.record.dto.MessageRecordFilterDTO;
 import com.csg.ecard.messagecenter.module.record.dto.MessageRecordPageQueryDTO;
+import com.csg.ecard.messagecenter.module.record.entity.MsgRecordResendLog;
 import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordDetailRow;
 import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordExportRow;
 import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordMapper;
 import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordOverviewRow;
 import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordQueryCriteria;
+import com.csg.ecard.messagecenter.module.record.mapper.MsgRecordResendLogMapper;
 import com.csg.ecard.messagecenter.module.record.service.MessageRecordService;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordDetailVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordListVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordOverviewVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordPageResult;
+import com.csg.ecard.messagecenter.module.record.vo.MessageRecordResendLogVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordResendVO;
 import com.csg.ecard.messagecenter.module.scene.entity.MsgSceneParam;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneParamMapper;
@@ -67,6 +72,7 @@ public class MessageRecordServiceImpl implements MessageRecordService {
     };
 
     private final MessageRecordMapper messageRecordMapper;
+    private final MsgRecordResendLogMapper resendLogMapper;
     private final MsgSceneParamMapper msgSceneParamMapper;
     private final MsgTemplateMapper msgTemplateMapper;
     private final MsgChannelMapper msgChannelMapper;
@@ -87,13 +93,14 @@ public class MessageRecordServiceImpl implements MessageRecordService {
         long todayTotal = value(row == null ? null : row.getTodayTotal());
         long todaySuccess = value(row == null ? null : row.getTodaySuccess());
         long todayFailed = value(row == null ? null : row.getTodayFailed());
+        long todayPending = value(row == null ? null : row.getTodayPending());
         long yesterdayTotal = value(row == null ? null : row.getYesterdayTotal());
 
         MessageRecordOverviewVO vo = new MessageRecordOverviewVO();
         vo.setTodayTotal(todayTotal);
         vo.setTodaySuccess(todaySuccess);
         vo.setTodayFailed(todayFailed);
-        vo.setTodayPending(0L);
+        vo.setTodayPending(todayPending);
         vo.setSuccessRate(rate(todaySuccess, todayTotal));
         vo.setYesterdayTotal(yesterdayTotal);
         vo.setDayOverDayRate(dayOverDay(todayTotal, yesterdayTotal));
@@ -148,6 +155,13 @@ public class MessageRecordServiceImpl implements MessageRecordService {
             throw new BizException(ErrorCode.CONFLICT, "记录正在重发，请勿重复操作");
         }
         try {
+            int resendCount = assembler.normalizeResendCount(record.getResendCount());
+            int maxResendCount = assembler.normalizeMaxResendCount(record.getMaxResendCount());
+            record.setResendCount(resendCount);
+            record.setMaxResendCount(maxResendCount);
+            if (resendCount >= maxResendCount) {
+                throw new BizException(ErrorCode.STATUS_NOT_ALLOWED, "手动重发次数已达到上限");
+            }
             MsgTemplate template = msgTemplateMapper.selectById(record.getTemplateId());
             if (template == null) {
                 throw new BizException(ErrorCode.DATA_NOT_FOUND, "原消息模板不存在，无法重发");
@@ -163,6 +177,16 @@ public class MessageRecordServiceImpl implements MessageRecordService {
     }
 
     @Override
+    public List<MessageRecordResendLogVO> resendLogs(Long id) {
+        if (messageRecordMapper.selectById(id) == null) {
+            throw new BizException(ErrorCode.DATA_NOT_FOUND, "消息记录不存在");
+        }
+        return resendLogMapper.selectByRecordId(id).stream()
+                .map(this::toResendLogVO)
+                .toList();
+    }
+
+    @Override
     public List<MessageRecordExportRow> exportRows(MessageRecordFilterDTO query) {
         MessageRecordQueryCriteria criteria = normalizeAndValidate(query);
         Page<MessageRecordExportRow> page = new Page<>(1, EXPORT_LIMIT + 1L, false);
@@ -174,6 +198,14 @@ public class MessageRecordServiceImpl implements MessageRecordService {
     }
 
     private MessageRecordResendVO executeResend(MsgRecord record, MsgChannel channel) {
+        LocalDateTime startedAt = LocalDateTime.now();
+        int nextResendNo = assembler.normalizeResendCount(record.getResendCount()) + 1;
+        MsgRecordResendLog log = new MsgRecordResendLog();
+        log.setRecordId(record.getId());
+        log.setResendNo(nextResendNo);
+        log.setStartTime(startedAt);
+        log.setOperatorId(CurrentUserContext.getUserIdOrDefault(CommonConstants.DEFAULT_OPERATOR));
+
         LocalDateTime completedAt;
         ChannelSendResult sendResult;
         Throwable technicalError = null;
@@ -224,16 +256,41 @@ public class MessageRecordServiceImpl implements MessageRecordService {
         record.setErrorMsg(success ? null : defaultError(sendResult.errorMsg()));
         record.setErrorStack(success ? null : ExceptionStackTraceUtils.getStackTrace(technicalError));
         record.setSendTime(completedAt);
+        record.setResendCount(nextResendNo);
+        record.setMaxResendCount(assembler.normalizeMaxResendCount(record.getMaxResendCount()));
+        log.setSendStatus(record.getSendStatus());
+        log.setErrorMsg(record.getErrorMsg());
+        log.setErrorStack(record.getErrorStack());
+        log.setEndTime(completedAt);
         updateResendRecord(record);
+        saveResendLog(log);
 
         MessageRecordResendVO vo = new MessageRecordResendVO();
         vo.setId(record.getId());
         vo.setMsgId(record.getMsgId());
         vo.setSendStatus(record.getSendStatus());
         vo.setSendStatusDesc(assembler.sendStatusDesc(record.getSendStatus()));
+        vo.setResendCount(record.getResendCount());
+        vo.setMaxResendCount(record.getMaxResendCount());
         vo.setErrorMsg(record.getErrorMsg());
         vo.setSendTime(record.getSendTime());
         vo.setSuccess(success);
+        return vo;
+    }
+
+    private MessageRecordResendLogVO toResendLogVO(MsgRecordResendLog log) {
+        MessageRecordResendLogVO vo = new MessageRecordResendLogVO();
+        vo.setId(log.getId());
+        vo.setRecordId(log.getRecordId());
+        vo.setResendNo(log.getResendNo());
+        vo.setSendStatus(log.getSendStatus());
+        vo.setSendStatusDesc(assembler.sendStatusDesc(log.getSendStatus()));
+        vo.setErrorMsg(log.getErrorMsg());
+        vo.setErrorStack(log.getErrorStack());
+        vo.setStartTime(log.getStartTime());
+        vo.setEndTime(log.getEndTime());
+        vo.setOperatorId(log.getOperatorId());
+        vo.setCreatedAt(log.getCreateTime());
         return vo;
     }
 
@@ -246,6 +303,18 @@ public class MessageRecordServiceImpl implements MessageRecordService {
             }
             record.setErrorStack(null);
             messageRecordMapper.updateById(record);
+        }
+    }
+
+    private void saveResendLog(MsgRecordResendLog log) {
+        try {
+            resendLogMapper.insert(log);
+        } catch (RuntimeException ex) {
+            if (log.getErrorStack() == null) {
+                throw ex;
+            }
+            log.setErrorStack(null);
+            resendLogMapper.insert(log);
         }
     }
 
@@ -373,7 +442,7 @@ public class MessageRecordServiceImpl implements MessageRecordService {
         try {
             return SendStatus.valueOf(value).name();
         } catch (IllegalArgumentException ex) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "sendStatus仅支持SUCCESS或FAILED");
+            throw new BizException(ErrorCode.PARAM_ERROR, "sendStatus仅支持SUCCESS、FAILED、PENDING或ACCEPTED");
         }
     }
 

@@ -52,6 +52,8 @@ public class MsgRecord extends BaseEntity {
     private MessagePriority priority;
     private MessageCallType callType;
     private String sendStatus;
+    private Integer resendCount;
+    private Integer maxResendCount;
 
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String errorMsg;

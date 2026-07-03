@@ -123,7 +123,12 @@ public class MessageRecordExcelExporter {
             return "";
         }
         try {
-            return SendStatus.valueOf(value) == SendStatus.SUCCESS ? "发送成功" : "发送失败";
+            return switch (SendStatus.valueOf(value)) {
+                case SUCCESS -> "发送成功";
+                case FAILED -> "发送失败";
+                case PENDING -> "待发送";
+                case ACCEPTED -> "已受理";
+            };
         } catch (IllegalArgumentException ex) {
             return value;
         }

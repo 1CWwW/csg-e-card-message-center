@@ -9,6 +9,7 @@ import com.csg.ecard.messagecenter.module.record.service.MessageRecordService;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordDetailVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordOverviewVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordPageResult;
+import com.csg.ecard.messagecenter.module.record.vo.MessageRecordResendLogVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordResendVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -85,6 +86,14 @@ public class MessageRecordController {
     public ApiResult<MessageRecordResendVO> resend(
             @Parameter(description = "消息记录ID，对外为字符串") @PathVariable Long id) {
         return ApiResult.success(messageRecordService.resend(id));
+    }
+
+    @GetMapping("/{id}/resend-logs")
+    @Operation(summary = "查询消息记录手动重发日志",
+            description = "按重发次数升序返回指定消息记录的每次手动重发结果")
+    public ApiResult<List<MessageRecordResendLogVO>> resendLogs(
+            @Parameter(description = "消息记录ID，对外为字符串") @PathVariable Long id) {
+        return ApiResult.success(messageRecordService.resendLogs(id));
     }
 
     @GetMapping("/export")

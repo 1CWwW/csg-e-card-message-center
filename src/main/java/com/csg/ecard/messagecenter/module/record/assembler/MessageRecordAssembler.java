@@ -6,6 +6,7 @@ import com.csg.ecard.messagecenter.common.enums.MessageCallType;
 import com.csg.ecard.messagecenter.common.enums.MessagePriority;
 import com.csg.ecard.messagecenter.common.enums.ParamType;
 import com.csg.ecard.messagecenter.common.exception.BizException;
+import com.csg.ecard.messagecenter.config.message.MessageRecordProperties;
 import com.csg.ecard.messagecenter.module.channel.dto.ChannelTypeConfigDTO;
 import com.csg.ecard.messagecenter.module.push.enums.SendStatus;
 import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordDetailRow;
@@ -43,6 +44,7 @@ public class MessageRecordAssembler {
             Set.of("senderNumber", "senderEmail", "appId");
 
     private final ObjectMapper objectMapper;
+    private final MessageRecordProperties recordProperties;
 
     /**
      * 补充列表中的枚举描述和操作标识。
@@ -56,7 +58,10 @@ public class MessageRecordAssembler {
             MessageCallType callType = normalizeCallType(item.getCallType());
             item.setCallType(callType.getCode());
             item.setCallTypeDesc(callType.getDescription());
-            item.setCanResend(SendStatus.FAILED.name().equals(item.getSendStatus()));
+            item.setResendCount(normalizeResendCount(item.getResendCount()));
+            item.setMaxResendCount(normalizeMaxResendCount(item.getMaxResendCount()));
+            item.setCanResend(canResend(item.getSendStatus(),
+                    item.getResendCount(), item.getMaxResendCount()));
         });
     }
 
@@ -92,10 +97,13 @@ public class MessageRecordAssembler {
         vo.setTemplateChannelTypeDesc(channelTypeDesc(row.getTemplateChannelType()));
         vo.setSendStatus(row.getSendStatus());
         vo.setSendStatusDesc(sendStatusDesc(row.getSendStatus()));
+        vo.setResendCount(normalizeResendCount(row.getResendCount()));
+        vo.setMaxResendCount(normalizeMaxResendCount(row.getMaxResendCount()));
         vo.setErrorMsg(row.getErrorMsg());
         vo.setErrorStack(row.getErrorStack());
         vo.setSendTime(row.getSendTime());
-        vo.setCanResend(SendStatus.FAILED.name().equals(row.getSendStatus()));
+        vo.setCanResend(canResend(row.getSendStatus(),
+                vo.getResendCount(), vo.getMaxResendCount()));
         vo.setMessageContent(row.getMessageContent());
         vo.setFullMessageContent(row.getMessageContent());
         vo.setSceneParamsRaw(row.getSceneParams());
@@ -137,7 +145,12 @@ public class MessageRecordAssembler {
             return null;
         }
         try {
-            return SendStatus.valueOf(status) == SendStatus.SUCCESS ? "发送成功" : "发送失败";
+            return switch (SendStatus.valueOf(status)) {
+                case SUCCESS -> "发送成功";
+                case FAILED -> "发送失败";
+                case PENDING -> "待发送";
+                case ACCEPTED -> "已受理";
+            };
         } catch (IllegalArgumentException ex) {
             return status;
         }
@@ -171,6 +184,20 @@ public class MessageRecordAssembler {
 
     public String callTypeDesc(String callType) {
         return normalizeCallType(callType).getDescription();
+    }
+
+    public int normalizeResendCount(Integer resendCount) {
+        return resendCount == null ? 0 : Math.max(resendCount, 0);
+    }
+
+    public int normalizeMaxResendCount(Integer maxResendCount) {
+        int configuredDefault = Math.max(recordProperties.getMaxResendCount(), 0);
+        return maxResendCount == null ? configuredDefault : Math.max(maxResendCount, 0);
+    }
+
+    public boolean canResend(String sendStatus, Integer resendCount, Integer maxResendCount) {
+        return SendStatus.FAILED.name().equals(sendStatus)
+                && normalizeResendCount(resendCount) < normalizeMaxResendCount(maxResendCount);
     }
 
     private Map<String, Object> parseSceneParams(Long recordId, String raw) {

@@ -21,6 +21,8 @@ public class MessageRecordResendVO {
     private String msgId;
     private String sendStatus;
     private String sendStatusDesc;
+    private Integer resendCount;
+    private Integer maxResendCount;
     private String errorMsg;
     private LocalDateTime sendTime;
     private boolean success;

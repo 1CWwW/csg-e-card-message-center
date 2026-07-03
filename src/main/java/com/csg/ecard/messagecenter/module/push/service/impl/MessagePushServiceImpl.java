@@ -9,6 +9,7 @@ import com.csg.ecard.messagecenter.common.enums.MessagePriority;
 import com.csg.ecard.messagecenter.common.exception.BizException;
 import com.csg.ecard.messagecenter.common.utils.ExceptionStackTraceUtils;
 import com.csg.ecard.messagecenter.common.utils.MessageIdGenerator;
+import com.csg.ecard.messagecenter.config.message.MessageRecordProperties;
 import com.csg.ecard.messagecenter.framework.context.CurrentUserContext;
 import com.csg.ecard.messagecenter.infrastructure.employee.EmployeeInfo;
 import com.csg.ecard.messagecenter.infrastructure.employee.EmployeeInfoProvider;
@@ -104,6 +105,7 @@ public class MessagePushServiceImpl implements MessagePushService {
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
     private final EmployeeInfoProvider employeeInfoProvider;
+    private final MessageRecordProperties messageRecordProperties;
 
     private static final TypeReference<List<EmailFileDTO>> EMAIL_FILE_LIST_TYPE = new TypeReference<>() {
     };
@@ -638,8 +640,8 @@ public class MessagePushServiceImpl implements MessagePushService {
             validateRecipient(channelType, request);
             validateInAppUrl(channelType, request);
             if (deferInAppBatch && (channelType == ChannelType.IN_APP || channelType == ChannelType.EMAIL)) {
-                result.setStatus(SendStatus.SENDING);
-                result.setResultCode(SendStatus.SENDING.name());
+                result.setStatus(SendStatus.ACCEPTED);
+                result.setResultCode(SendStatus.ACCEPTED.name());
                 saveOrUpdateRecord(pcId, messageId, request, scene, template, channel,
                         serializedSceneParams, result, callType, null);
                 return new TemplateExecutionResult(result, false);
@@ -708,7 +710,7 @@ public class MessagePushServiceImpl implements MessagePushService {
         List<MsgRecord> records = msgRecordMapper.selectList(new LambdaQueryWrapper<MsgRecord>()
                 .eq(MsgRecord::getPcId, pcId)
                 .eq(MsgRecord::getMsgType, externalMsgType(ChannelType.IN_APP))
-                .eq(MsgRecord::getSendStatus, SendStatus.SENDING.name())
+                .eq(MsgRecord::getSendStatus, SendStatus.ACCEPTED.name())
                 .orderByAsc(MsgRecord::getId));
         if (records.isEmpty()) {
             return;
@@ -768,7 +770,7 @@ public class MessagePushServiceImpl implements MessagePushService {
         List<MsgRecord> records = msgRecordMapper.selectList(new LambdaQueryWrapper<MsgRecord>()
                 .eq(MsgRecord::getPcId, pcId)
                 .eq(MsgRecord::getMsgType, externalMsgType(ChannelType.EMAIL))
-                .eq(MsgRecord::getSendStatus, SendStatus.SENDING.name())
+                .eq(MsgRecord::getSendStatus, SendStatus.ACCEPTED.name())
                 .orderByAsc(MsgRecord::getEmailId, MsgRecord::getId));
         if (records.isEmpty()) {
             return;
@@ -1017,6 +1019,8 @@ public class MessagePushServiceImpl implements MessagePushService {
         boolean existing = record != null;
         if (!existing) {
             record = new MsgRecord();
+            record.setResendCount(0);
+            record.setMaxResendCount(defaultMaxResendCount());
         }
         record.setPcId(pcId);
         record.setMsgId(messageId);
@@ -1055,6 +1059,12 @@ public class MessagePushServiceImpl implements MessagePushService {
         if (record.getCallType() == null) {
             record.setCallType(callType);
         }
+        if (record.getResendCount() == null) {
+            record.setResendCount(0);
+        }
+        if (record.getMaxResendCount() == null) {
+            record.setMaxResendCount(defaultMaxResendCount());
+        }
         record.setSendStatus(result.getStatus().name());
         record.setErrorMsg(result.getErrorMsg());
         record.setErrorStack(ExceptionStackTraceUtils.getStackTrace(technicalError));
@@ -1082,6 +1092,10 @@ public class MessagePushServiceImpl implements MessagePushService {
                 msgRecordMapper.insert(record);
             }
         }
+    }
+
+    private int defaultMaxResendCount() {
+        return Math.max(messageRecordProperties.getMaxResendCount(), 0);
     }
 
     @Override

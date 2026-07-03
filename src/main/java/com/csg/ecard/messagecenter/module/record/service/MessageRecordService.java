@@ -6,6 +6,7 @@ import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordExportRow;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordDetailVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordOverviewVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordPageResult;
+import com.csg.ecard.messagecenter.module.record.vo.MessageRecordResendLogVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordResendVO;
 
 import java.util.List;
@@ -22,6 +23,8 @@ public interface MessageRecordService {
     MessageRecordDetailVO detail(Long id);
 
     MessageRecordResendVO resend(Long id);
+
+    List<MessageRecordResendLogVO> resendLogs(Long id);
 
     List<MessageRecordExportRow> exportRows(MessageRecordFilterDTO query);
 }

@@ -1,14 +1,18 @@
 package com.csg.ecard.messagecenter.common.utils;
 
 import com.csg.ecard.messagecenter.common.constant.MessageCenterConstants;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -19,15 +23,27 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class MessageIdGenerator {
 
     private static final DateTimeFormatter DAY_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final int SEQUENCE_WIDTH = 5;
     private static final AtomicLong LOCAL_SEQUENCE = new AtomicLong();
 
-    private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectProvider<StringRedisTemplate> stringRedisTemplateProvider;
+
+    @Value("${app.redis.enabled:true}")
+    private boolean redisEnabled;
+
     private volatile String localSequenceDay;
+
+    @Autowired
+    public MessageIdGenerator(ObjectProvider<StringRedisTemplate> stringRedisTemplateProvider) {
+        this.stringRedisTemplateProvider = stringRedisTemplateProvider;
+    }
+
+    public MessageIdGenerator(StringRedisTemplate stringRedisTemplate) {
+        this.stringRedisTemplateProvider = new SingletonObjectProvider(stringRedisTemplate);
+    }
 
     /**
      * 生成下一个消息 ID。
@@ -42,7 +58,14 @@ public class MessageIdGenerator {
 
     private long nextSequence(String day) {
         String key = MessageCenterConstants.MESSAGE_ID_PREFIX + "seq:" + day;
+        if (!redisEnabled) {
+            return nextLocalSequence(day);
+        }
         try {
+            StringRedisTemplate stringRedisTemplate = stringRedisTemplateProvider.getIfAvailable();
+            if (stringRedisTemplate == null) {
+                return nextLocalSequence(day);
+            }
             Long sequence = stringRedisTemplate.opsForValue().increment(key);
             if (sequence != null && sequence == 1L) {
                 stringRedisTemplate.expire(key, Duration.ofDays(2));
@@ -65,5 +88,33 @@ public class MessageIdGenerator {
             }
         }
         return LOCAL_SEQUENCE.incrementAndGet();
+    }
+
+    private record SingletonObjectProvider(StringRedisTemplate value) implements ObjectProvider<StringRedisTemplate> {
+
+        @Override
+        public StringRedisTemplate getObject(Object... args) {
+            return value;
+        }
+
+        @Override
+        public StringRedisTemplate getIfAvailable() {
+            return value;
+        }
+
+        @Override
+        public StringRedisTemplate getIfUnique() {
+            return value;
+        }
+
+        @Override
+        public StringRedisTemplate getObject() {
+            return value;
+        }
+
+        @Override
+        public Iterator<StringRedisTemplate> iterator() {
+            return value == null ? Collections.emptyIterator() : java.util.List.of(value).iterator();
+        }
     }
 }

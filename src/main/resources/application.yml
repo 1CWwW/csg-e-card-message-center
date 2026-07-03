@@ -60,6 +60,8 @@ management:
       enabled: ${REDIS_HEALTH_ENABLED:false}
 
 app:
+  redis:
+    enabled: ${APP_REDIS_ENABLED:true}
   message-id:
     prefix: MSG
   idempotent:
@@ -67,6 +69,8 @@ app:
     default-ttl-seconds: 300
   message-schedule:
     batch-size: ${MESSAGE_SCHEDULE_BATCH_SIZE:100}
+  message-record:
+    max-resend-count: ${MESSAGE_RECORD_MAX_RESEND_COUNT:5}
 
 xxl:
   job:

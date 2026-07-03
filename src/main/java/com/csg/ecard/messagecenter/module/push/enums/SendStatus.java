@@ -5,7 +5,7 @@ package com.csg.ecard.messagecenter.module.push.enums;
  */
 public enum SendStatus {
     PENDING,
-    SENDING,
+    ACCEPTED,
     SUCCESS,
     FAILED
 }

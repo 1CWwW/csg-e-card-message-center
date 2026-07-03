@@ -52,8 +52,10 @@ public class MessageRecordListVO {
     @Schema(description = "模板渲染后实际提交渠道发送器的完整最终推送内容")
     private String messageContent;
 
-    @Schema(description = "发送状态：SUCCESS、FAILED")
+    @Schema(description = "发送状态：SUCCESS、FAILED、PENDING、ACCEPTED")
     private String sendStatus;
+    private Integer resendCount;
+    private Integer maxResendCount;
     private String sendStatusDesc;
     private String errorMsg;
 

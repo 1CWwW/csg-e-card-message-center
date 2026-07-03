@@ -299,6 +299,8 @@ CREATE TABLE msg_record
     priority        VARCHAR(16) DEFAULT 'NORMAL'          NOT NULL,
     call_type       VARCHAR(16)                           NOT NULL,
     send_status     VARCHAR(16)                           NOT NULL,
+    resend_count    INT         DEFAULT 0                 NOT NULL,
+    max_resend_count INT        DEFAULT 5                 NOT NULL,
     error_msg       VARCHAR(1000),
     error_stack     CLOB,
     send_time       TIMESTAMP,
@@ -312,7 +314,7 @@ CREATE TABLE msg_record
         PRIMARY KEY (id),
 
     CONSTRAINT ck_msg_record_send_status
-        CHECK (send_status IN ('PENDING', 'SENDING', 'SUCCESS', 'FAILED')),
+        CHECK (send_status IN ('PENDING', 'ACCEPTED', 'SUCCESS', 'FAILED')),
 
     CONSTRAINT ck_msg_record_priority
         CHECK (priority IN ('HIGH', 'NORMAL', 'LOW')),
@@ -411,7 +413,12 @@ ON COLUMN msg_record.copy_email IS '邮件抄送邮箱，逗号分隔';
 COMMENT
 ON COLUMN msg_record.file IS '邮件附件JSON';
 COMMENT
-ON COLUMN msg_record.send_status IS '发送状态：PENDING待发送、SENDING发送中、SUCCESS成功、FAILED失败';
+ON COLUMN msg_record.send_status IS '发送状态：SUCCESS成功、FAILED失败、PENDING待发送、ACCEPTED已受理';
+
+COMMENT
+ON COLUMN msg_record.resend_count IS '手动重发次数';
+COMMENT
+ON COLUMN msg_record.max_resend_count IS '允许手动重发最大次数';
 
 CREATE INDEX idx_msg_record_pc_id ON msg_record (pc_id);
 CREATE INDEX idx_msg_record_pc_template_user ON msg_record (pc_id, template_id, user_id);
@@ -428,3 +435,64 @@ CREATE INDEX idx_msg_record_send_status ON msg_record (send_status);
 CREATE INDEX idx_msg_record_send_time ON msg_record (send_time);
 CREATE INDEX idx_msg_record_schedule_time ON msg_record (schedule_time);
 CREATE INDEX idx_msg_record_pc_msg_type_email ON msg_record (pc_id, msg_type, email_id);
+
+CREATE TABLE msg_record_resend_log
+(
+    id          BIGINT                                NOT NULL,
+    record_id   BIGINT                                NOT NULL,
+    resend_no   INT                                   NOT NULL,
+    send_status VARCHAR(16)                           NOT NULL,
+    error_msg   VARCHAR(1000),
+    error_stack CLOB,
+    start_time  TIMESTAMP                             NOT NULL,
+    end_time    TIMESTAMP                             NOT NULL,
+    operator_id VARCHAR(64),
+    create_by   VARCHAR(64),
+    create_time TIMESTAMP   DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    update_by   VARCHAR(64),
+    update_time TIMESTAMP   DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted     INT         DEFAULT 0                 NOT NULL,
+
+    CONSTRAINT pk_msg_record_resend_log
+        PRIMARY KEY (id),
+
+    CONSTRAINT ck_msg_record_resend_log_status
+        CHECK (send_status IN ('SUCCESS', 'FAILED')),
+
+    CONSTRAINT ck_msg_record_resend_log_deleted
+        CHECK (deleted IN (0, 1))
+);
+
+COMMENT
+ON TABLE msg_record_resend_log IS '消息记录手动重发日志表';
+COMMENT
+ON COLUMN msg_record_resend_log.id IS '主键ID';
+COMMENT
+ON COLUMN msg_record_resend_log.record_id IS '消息记录ID';
+COMMENT
+ON COLUMN msg_record_resend_log.resend_no IS '第几次手动重发';
+COMMENT
+ON COLUMN msg_record_resend_log.send_status IS '本次重发结果：SUCCESS成功、FAILED失败';
+COMMENT
+ON COLUMN msg_record_resend_log.error_msg IS '本次重发失败原因';
+COMMENT
+ON COLUMN msg_record_resend_log.error_stack IS '本次重发技术异常堆栈';
+COMMENT
+ON COLUMN msg_record_resend_log.start_time IS '本次重发开始时间';
+COMMENT
+ON COLUMN msg_record_resend_log.end_time IS '本次重发完成时间';
+COMMENT
+ON COLUMN msg_record_resend_log.operator_id IS '手动重发操作人ID';
+COMMENT
+ON COLUMN msg_record_resend_log.create_by IS '创建人';
+COMMENT
+ON COLUMN msg_record_resend_log.create_time IS '创建时间';
+COMMENT
+ON COLUMN msg_record_resend_log.update_by IS '更新人';
+COMMENT
+ON COLUMN msg_record_resend_log.update_time IS '更新时间';
+COMMENT
+ON COLUMN msg_record_resend_log.deleted IS '逻辑删除标记：0正常，1删除';
+
+CREATE INDEX idx_msg_record_resend_log_record_id ON msg_record_resend_log (record_id);
+CREATE INDEX idx_msg_record_resend_log_record_no ON msg_record_resend_log (record_id, resend_no);

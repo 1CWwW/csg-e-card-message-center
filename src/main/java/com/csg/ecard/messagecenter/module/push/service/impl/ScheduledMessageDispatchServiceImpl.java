@@ -251,7 +251,7 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
         return msgRecordMapper.update(null, new LambdaUpdateWrapper<MsgRecord>()
                 .eq(MsgRecord::getId, id)
                 .eq(MsgRecord::getSendStatus, SendStatus.PENDING.name())
-                .set(MsgRecord::getSendStatus, SendStatus.SENDING.name())) > 0;
+                .set(MsgRecord::getSendStatus, SendStatus.ACCEPTED.name())) > 0;
     }
 
     private MsgChannel requireChannel(MsgRecord record) {

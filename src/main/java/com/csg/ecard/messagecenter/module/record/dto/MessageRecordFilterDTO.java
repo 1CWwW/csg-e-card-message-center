@@ -40,7 +40,8 @@ public class MessageRecordFilterDTO {
     @Schema(description = "模板名称，模糊匹配")
     private String templateName;
 
-    @Schema(description = "发送状态：SUCCESS、FAILED")
+    @Schema(description = "发送状态：SUCCESS、FAILED、PENDING、ACCEPTED",
+            allowableValues = {"SUCCESS", "FAILED", "PENDING", "ACCEPTED"})
     private String sendStatus;
 
     @Schema(description = "消息业务优先级：HIGH、NORMAL、LOW；与渠道匹配优先级无关",

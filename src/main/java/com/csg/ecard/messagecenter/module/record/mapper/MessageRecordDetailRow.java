@@ -32,6 +32,8 @@ public class MessageRecordDetailRow {
     private String priority;
     private String callType;
     private String sendStatus;
+    private Integer resendCount;
+    private Integer maxResendCount;
     private String errorMsg;
     private String errorStack;
     private LocalDateTime sendTime;

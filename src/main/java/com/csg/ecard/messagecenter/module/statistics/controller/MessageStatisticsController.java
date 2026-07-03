@@ -46,7 +46,7 @@ public class MessageStatisticsController {
             DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final String COMMON_DESCRIPTION = "统计基于msg_record，一条msg_record计为一次渠道发送；"
             + "统计时间统一使用send_time，startTime和endTime均可选，传入时包含边界；"
-            + "只统计SUCCESS和FAILED，PENDING、PROCESSING、ACCEPTED不计入完成发送统计；"
+            + "只统计SUCCESS和FAILED，PENDING、ACCEPTED不计入完成发送统计；"
             + "successRate和percentage返回0到100之间的数字。";
 
     private final MessageStatisticsService messageStatisticsService;
