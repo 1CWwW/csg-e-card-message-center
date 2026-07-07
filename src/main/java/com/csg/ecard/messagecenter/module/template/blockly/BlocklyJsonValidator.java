@@ -282,7 +282,9 @@ public class BlocklyJsonValidator {
                         validateParamReference(block, context);
                 case BlocklyBlockTypes.MATH_ARITHMETIC ->
                         requireLinkedOperator(block, Set.of("ADD", "MINUS", "MULTIPLY", "DIVIDE"));
-                case BlocklyBlockTypes.MATH_MODULO -> validateLinkedNeighbor(index, orderedBlocks, blockType);
+                case BlocklyBlockTypes.MATH_MODULO -> {
+                    // LINKED_NODES 模式下数学输入由 templateMathExpressions/templateLinks 描述。
+                }
                 case BlocklyBlockTypes.LOGIC_COMPARE ->
                         requireLinkedOperator(block, Set.of("EQ", "NEQ", "LT", "LTE", "GT", "GTE"));
                 case BlocklyBlockTypes.STRING_CONTAINS, BlocklyBlockTypes.STRING_LIKE ->
@@ -296,12 +298,10 @@ public class BlocklyJsonValidator {
                     validateLinkedAdjacent(index, orderedBlocks, blockType);
                     validateLinkedTimeFormat(block);
                 }
-                case BlocklyBlockTypes.CONTROLS_IF ->
-                        throw new BizException(ErrorCode.PARAM_ERROR, "链式条件分支暂未支持");
-                case BlocklyBlockTypes.CONTROLS_FOR_EACH ->
-                        throw new BizException(ErrorCode.PARAM_ERROR, "链式循环暂未支持");
-                case BlocklyBlockTypes.LOOP_ITEM_VALUE ->
-                        throw new BizException(ErrorCode.PARAM_ERROR, "loop_item_value 只能在循环体中使用");
+                case BlocklyBlockTypes.CONTROLS_IF, BlocklyBlockTypes.CONTROLS_FOR_EACH,
+                     BlocklyBlockTypes.LOOP_ITEM_VALUE, BlocklyBlockTypes.LOOP_ITEM_FIELD -> {
+                    // LINKED_NODES mode validates control context during render.
+                }
                 case BlocklyBlockTypes.MESSAGE_CONTENT ->
                         throw new BizException(ErrorCode.PARAM_ERROR, "LINKED_NODES 模式不支持 message_content 节点");
                 default -> throw new BizException(ErrorCode.PARAM_ERROR, "不支持的 Blockly 节点类型：" + blockType);
@@ -477,6 +477,7 @@ public class BlocklyJsonValidator {
             case BlocklyBlockTypes.CONTROLS_IF -> validateControlsIf(block, depth, context);
             case BlocklyBlockTypes.CONTROLS_FOR_EACH -> validateControlsForEach(block, depth, context);
             case BlocklyBlockTypes.LOOP_ITEM_VALUE -> validateLoopItemValue(block, context);
+            case BlocklyBlockTypes.LOOP_ITEM_FIELD -> validateLoopItemField(block, context);
             case BlocklyBlockTypes.MESSAGE_CONTENT ->
                     throw new BizException(ErrorCode.PARAM_ERROR,
                             "message_content 只能作为模板根节点");
@@ -552,15 +553,25 @@ public class BlocklyJsonValidator {
         BlocklyValueType left = validateRequiredInput(block, "A", depth, context);
         BlocklyValueType right = validateRequiredInput(block, "B", depth, context);
         if ("EQ".equals(operator) || "NEQ".equals(operator)) {
-            if (left != right || left == BlocklyValueType.STATEMENT) {
+            if ((left != right && (!isNumberLikeCompareInput(block, "A", left)
+                    || !isNumberLikeCompareInput(block, "B", right)))
+                    || left == BlocklyValueType.STATEMENT) {
                 throw new BizException(ErrorCode.PARAM_ERROR,
                         "logic_compare 的 EQ、NEQ 只允许同类型值比较");
             }
-        } else if (left != BlocklyValueType.NUMBER || right != BlocklyValueType.NUMBER) {
+        } else if (!isNumberLikeCompareInput(block, "A", left)
+                || !isNumberLikeCompareInput(block, "B", right)) {
             throw new BizException(ErrorCode.PARAM_ERROR,
                     "logic_compare 的大小比较输入必须为 NUMBER");
         }
         return BlocklyValueType.BOOLEAN;
+    }
+
+    private boolean isNumberLikeCompareInput(JsonNode block, String inputName, BlocklyValueType type) {
+        if (type == BlocklyValueType.NUMBER) {
+            return true;
+        }
+        return type == BlocklyValueType.STRING;
     }
 
     private BlocklyValueType validateControlsIf(JsonNode block,
@@ -703,7 +714,9 @@ public class BlocklyJsonValidator {
         }
         rejectAttachedNext(listBlock, "controls_forEach 的 LIST");
         BlocklyValueType listType = validateRequiredInput(block, "LIST", depth, context);
-        if (listType != BlocklyValueType.STRING_ARRAY && listType != BlocklyValueType.NUMBER_ARRAY) {
+        if (listType != BlocklyValueType.STRING_ARRAY
+            && listType != BlocklyValueType.NUMBER_ARRAY
+            && listType != BlocklyValueType.OBJECT_ARRAY) {
             throw new BizException(ErrorCode.PARAM_ERROR, "controls_forEach 的 LIST 必须返回数组");
         }
 
@@ -728,9 +741,7 @@ public class BlocklyJsonValidator {
             }
         }
 
-        BlocklyValueType itemType = listType == BlocklyValueType.STRING_ARRAY
-            ? BlocklyValueType.STRING
-            : BlocklyValueType.NUMBER;
+        BlocklyValueType itemType = loopItemType(listType);
         context.loopItemType = itemType;
         try {
             BlocklyValueType bodyType = validateRequiredInput(block, "BODY", depth, context);
@@ -779,6 +790,43 @@ public class BlocklyJsonValidator {
         }
 
         return declaredType;
+    }
+
+    private BlocklyValueType validateLoopItemField(JsonNode block, ValidationContext context) {
+        if (context.loopItemType != BlocklyValueType.OBJECT) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "loop_item_field 只能在对象数组循环体中使用");
+        }
+        JsonNode extraState = block.get("extraState");
+        if (extraState == null || !extraState.isObject()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "loop_item_field 缺少 extraState");
+        }
+        String fieldName = text(extraState.get("fieldName"));
+        if (!StringUtils.hasText(fieldName)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "loop_item_field 缺少 fieldName");
+        }
+        String fieldType = text(extraState.get("fieldType"));
+        if (!StringUtils.hasText(fieldType)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "loop_item_field 缺少 fieldType");
+        }
+        try {
+            BlocklyValueType type = BlocklyValueType.valueOf(fieldType);
+            if (type == BlocklyValueType.STRING || type == BlocklyValueType.NUMBER || type == BlocklyValueType.TIME) {
+                return type;
+            }
+        } catch (IllegalArgumentException ignored) {
+            // 统一走下面的业务错误。
+        }
+        throw new BizException(ErrorCode.PARAM_ERROR,
+                "loop_item_field 的 fieldType 必须是 STRING、NUMBER 或 TIME");
+    }
+
+    private BlocklyValueType loopItemType(BlocklyValueType listType) {
+        return switch (listType) {
+            case STRING_ARRAY -> BlocklyValueType.STRING;
+            case NUMBER_ARRAY -> BlocklyValueType.NUMBER;
+            case OBJECT_ARRAY -> BlocklyValueType.OBJECT;
+            default -> throw new BizException(ErrorCode.PARAM_ERROR, "controls_forEach 的 LIST 必须返回数组");
+        };
     }
 
     private boolean containsLoopItemValue(JsonNode block) {
@@ -991,6 +1039,8 @@ public class BlocklyJsonValidator {
             case TIME -> "时间";
             case STRING_ARRAY -> "字符串数组";
             case NUMBER_ARRAY -> "数字数组";
+            case OBJECT -> "对象";
+            case OBJECT_ARRAY -> "对象数组";
             case STATEMENT -> "语句";
         };
     }

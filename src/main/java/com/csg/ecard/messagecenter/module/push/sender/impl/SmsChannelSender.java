@@ -6,6 +6,7 @@ import com.csg.ecard.messagecenter.module.push.sender.ChannelSendRequest;
 import com.csg.ecard.messagecenter.module.push.sender.ChannelSendResult;
 import com.csg.ecard.messagecenter.module.push.sender.ChannelSender;
 import com.csg.ecard.messagecenter.module.push.sender.MessageSendInfo;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -21,6 +22,7 @@ import java.util.List;
  * 南网短信平台发送适配器。
  */
 @Component
+@ConditionalOnProperty(prefix = "message.sender", name = "mode", havingValue = "real", matchIfMissing = true)
 public class SmsChannelSender implements ChannelSender {
 
     private static final String SMS_PLATFORM_NANWANG = "NANWANG";

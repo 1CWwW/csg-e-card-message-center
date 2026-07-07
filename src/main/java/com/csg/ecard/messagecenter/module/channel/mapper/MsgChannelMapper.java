@@ -85,4 +85,20 @@ public interface MsgChannelMapper extends BaseMapper<MsgChannel> {
             "ORDER BY c.priority ASC, c.create_time ASC, c.id ASC"
     })
     List<MsgChannel> selectEnabledDefaultCandidates(@Param("channelType") String channelType);
+
+    /**
+     * 查询指定类型的任意启用渠道，用于默认模板兜底发送。
+     *
+     * @param channelType 渠道类型
+     * @return 启用渠道候选
+     */
+    @Select({
+            "SELECT c.*",
+            "FROM msg_channel c",
+            "WHERE c.deleted = 0",
+            "AND c.status = 1",
+            "AND c.channel_type = #{channelType}",
+            "ORDER BY c.priority ASC, c.create_time ASC, c.id ASC"
+    })
+    List<MsgChannel> selectEnabledAnyCandidates(@Param("channelType") String channelType);
 }

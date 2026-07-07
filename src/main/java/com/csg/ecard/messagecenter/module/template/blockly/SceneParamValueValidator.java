@@ -43,6 +43,7 @@ public class SceneParamValueValidator {
             case TIME -> formatTime(param, value);
             case STRING_ARRAY -> formatStringArray(param, value);
             case NUMBER_ARRAY -> formatNumberArray(param, value);
+            case OBJECT_ARRAY -> formatObjectArray(param, value);
         };
     }
 
@@ -108,6 +109,31 @@ public class SceneParamValueValidator {
             items.add(number.toPlainString());
         }
         return String.join("，", items);
+    }
+
+    private String formatObjectArray(MsgSceneParam param, JsonNode value) {
+        if (!value.isArray()) {
+            throw typeError(param, "JSON对象数组");
+        }
+        if (value.isEmpty()) {
+            return emptyArray(param);
+        }
+        for (JsonNode item : value) {
+            if (!item.isObject()) {
+                throw typeError(param, "JSON对象数组");
+            }
+            item.fields().forEachRemaining(field -> {
+                JsonNode fieldValue = field.getValue();
+                if (fieldValue != null
+                        && !fieldValue.isNull()
+                        && !fieldValue.isTextual()
+                        && !fieldValue.isNumber()
+                        && !fieldValue.isBoolean()) {
+                    throw typeError(param, "字段值为字符串、数字、布尔值或null的JSON对象数组");
+                }
+            });
+        }
+        return "";
     }
 
     private ParamType requireParamType(MsgSceneParam param) {

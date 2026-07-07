@@ -1,0 +1,24 @@
+message:
+  sender:
+    mode: mock
+    mock:
+      default-result: SUCCESS
+      delay-ms: 100
+      result-by-channel:
+        SMS: SUCCESS
+        EMAIL: SUCCESS
+        ELINK: RETRYABLE_FAILED
+        IN_APP: SUCCESS
+
+app:
+  local-unit-path:
+    max-depth: 20
+    parent-by-unit:
+      UNIT_110000: UNIT_100000
+      UNIT_110100: UNIT_110000
+      UNIT_110101: UNIT_110100
+      UNIT_110102: UNIT_110100
+      UNIT_110200: UNIT_110000
+      UNIT_110201: UNIT_110200
+      UNIT_120000: UNIT_100000
+      UNIT_120100: UNIT_120000

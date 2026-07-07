@@ -13,6 +13,8 @@ public enum BlocklyValueType {
     TIME,
     STRING_ARRAY,
     NUMBER_ARRAY,
+    OBJECT,
+    OBJECT_ARRAY,
     STATEMENT;
 
     /**
@@ -28,6 +30,7 @@ public enum BlocklyValueType {
             case TIME -> TIME;
             case STRING_ARRAY -> STRING_ARRAY;
             case NUMBER_ARRAY -> NUMBER_ARRAY;
+            case OBJECT_ARRAY -> OBJECT_ARRAY;
         };
     }
 

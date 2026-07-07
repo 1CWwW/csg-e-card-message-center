@@ -255,6 +255,10 @@ public class MessageRecordAssembler {
             return ParamType.NUMBER.getCode();
         }
         if (value instanceof Collection<?> collection) {
+            boolean allObjects = collection.stream().allMatch(Map.class::isInstance);
+            if (allObjects) {
+                return ParamType.OBJECT_ARRAY.getCode();
+            }
             boolean allNumbers = collection.stream().allMatch(Number.class::isInstance);
             return allNumbers ? ParamType.NUMBER_ARRAY.getCode() : ParamType.STRING_ARRAY.getCode();
         }

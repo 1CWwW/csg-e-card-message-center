@@ -1,6 +1,7 @@
 package com.csg.ecard.messagecenter.common.utils;
 
 import com.csg.ecard.messagecenter.common.constant.MessageCenterConstants;
+import com.csg.ecard.messagecenter.module.push.mapper.MsgRecordMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +31,7 @@ public class MessageIdGenerator {
     private static final AtomicLong LOCAL_SEQUENCE = new AtomicLong();
 
     private final ObjectProvider<StringRedisTemplate> stringRedisTemplateProvider;
+    private final ObjectProvider<MsgRecordMapper> msgRecordMapperProvider;
 
     @Value("${app.redis.enabled:true}")
     private boolean redisEnabled;
@@ -37,12 +39,15 @@ public class MessageIdGenerator {
     private volatile String localSequenceDay;
 
     @Autowired
-    public MessageIdGenerator(ObjectProvider<StringRedisTemplate> stringRedisTemplateProvider) {
+    public MessageIdGenerator(ObjectProvider<StringRedisTemplate> stringRedisTemplateProvider,
+                              ObjectProvider<MsgRecordMapper> msgRecordMapperProvider) {
         this.stringRedisTemplateProvider = stringRedisTemplateProvider;
+        this.msgRecordMapperProvider = msgRecordMapperProvider;
     }
 
     public MessageIdGenerator(StringRedisTemplate stringRedisTemplate) {
         this.stringRedisTemplateProvider = new SingletonObjectProvider(stringRedisTemplate);
+        this.msgRecordMapperProvider = new SingletonObjectProvider<>(null);
     }
 
     /**
@@ -82,7 +87,7 @@ public class MessageIdGenerator {
         if (!day.equals(localSequenceDay)) {
             synchronized (LOCAL_SEQUENCE) {
                 if (!day.equals(localSequenceDay)) {
-                    LOCAL_SEQUENCE.set(0);
+                    LOCAL_SEQUENCE.set(resolvePersistedMaxSequence(day));
                     localSequenceDay = day;
                 }
             }
@@ -90,30 +95,45 @@ public class MessageIdGenerator {
         return LOCAL_SEQUENCE.incrementAndGet();
     }
 
-    private record SingletonObjectProvider(StringRedisTemplate value) implements ObjectProvider<StringRedisTemplate> {
+    private long resolvePersistedMaxSequence(String day) {
+        try {
+            MsgRecordMapper msgRecordMapper = msgRecordMapperProvider.getIfAvailable();
+            if (msgRecordMapper == null) {
+                return 0L;
+            }
+            String prefix = MessageCenterConstants.MESSAGE_ID_PREFIX + day + "_";
+            Long maxSequence = msgRecordMapper.selectMaxMsgIdSequence(prefix);
+            return maxSequence == null ? 0L : Math.max(maxSequence, 0L);
+        } catch (RuntimeException ex) {
+            log.warn("Resolve persisted message id sequence failed. day={}, cause={}", day, ex.getMessage());
+            return 0L;
+        }
+    }
+
+    private record SingletonObjectProvider<T>(T value) implements ObjectProvider<T> {
 
         @Override
-        public StringRedisTemplate getObject(Object... args) {
+        public T getObject(Object... args) {
             return value;
         }
 
         @Override
-        public StringRedisTemplate getIfAvailable() {
+        public T getIfAvailable() {
             return value;
         }
 
         @Override
-        public StringRedisTemplate getIfUnique() {
+        public T getIfUnique() {
             return value;
         }
 
         @Override
-        public StringRedisTemplate getObject() {
+        public T getObject() {
             return value;
         }
 
         @Override
-        public Iterator<StringRedisTemplate> iterator() {
+        public Iterator<T> iterator() {
             return value == null ? Collections.emptyIterator() : java.util.List.of(value).iterator();
         }
     }

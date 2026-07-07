@@ -100,6 +100,7 @@ class MsgTemplateServiceImplTest {
         expressionParams.put(8L, optionalParam(8L, "stringItems", ParamType.STRING_ARRAY));
         expressionParams.put(9L, optionalParam(9L, "numberItems", ParamType.NUMBER_ARRAY));
         expressionParams.put(10L, param(10L, "prefix", ParamType.STRING));
+        expressionParams.put(11L, optionalParam(11L, "wallets", ParamType.OBJECT_ARRAY));
     }
 
     @Test
@@ -244,15 +245,185 @@ class MsgTemplateServiceImplTest {
     }
 
     @Test
-    void shouldRejectUnsupportedLinkedControlsIfClearly() {
+    void shouldRenderGraphMathAdditionThenTextJoinSuffix() {
+        ObjectNode left = paramBlock(1L, "left", ParamType.NUMBER);
+        left.put("id", "left-param");
+        ObjectNode right = paramBlock(2L, "right", ParamType.NUMBER);
+        right.put("id", "right-param");
+        ObjectNode addition = linkedOperation("add", BlocklyBlockTypes.MATH_ARITHMETIC, "ADD");
+        ObjectNode suffix = textJoinBlock("元");
+        suffix.put("id", "suffix");
+
+        ObjectNode workspace = graphWorkspace("add", left, right, addition, suffix);
+        putMathExpression(workspace, "add", "left-param", "right-param");
+        putLink(workspace, "add", "suffix", "input");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of(
+                        "left", objectMapper.valueToTree(5),
+                        "right", objectMapper.valueToTree(5)
+                ));
+
+        assertThat(result.renderedContent()).isEqualTo("10元");
+    }
+
+    @Test
+    void shouldKeepGraphMathSubtractionOrder() {
+        ObjectNode left = linkedText("left-number", "10");
+        ObjectNode right = linkedText("right-number", "3");
+        ObjectNode minus = linkedOperation("minus", BlocklyBlockTypes.MATH_ARITHMETIC, "MINUS");
+        ObjectNode workspace = graphWorkspace("minus", left, right, minus);
+        putMathExpression(workspace, "minus", "left-number", "right-number");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of()).renderedContent()).isEqualTo("7");
+    }
+
+    @Test
+    void shouldRejectGraphDivisionByZero() {
+        ObjectNode left = linkedText("left-number", "10");
+        ObjectNode zero = linkedText("zero-number", "0");
+        ObjectNode divide = linkedOperation("divide", BlocklyBlockTypes.MATH_ARITHMETIC, "DIVIDE");
+        ObjectNode workspace = graphWorkspace("divide", left, zero, divide);
+        putMathExpression(workspace, "divide", "left-number", "zero-number");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        assertThatThrownBy(() -> actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of()))
+                .isInstanceOf(BizException.class)
+                .hasMessage("math_arithmetic 的除数不能为 0");
+    }
+
+    @Test
+    void shouldRenderGraphModulo() {
+        ObjectNode left = linkedText("left-number", "10");
+        ObjectNode right = linkedText("right-number", "3");
+        ObjectNode modulo = linkedOperation("modulo", BlocklyBlockTypes.MATH_MODULO, null);
+        ObjectNode workspace = graphWorkspace("modulo", left, right, modulo);
+        putMathExpression(workspace, "modulo", "left-number", "right-number");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of()).renderedContent()).isEqualTo("1");
+    }
+
+    @Test
+    void shouldRejectGraphModuloByZeroWithReadableMessage() {
+        ObjectNode left = linkedText("left-number", "10");
+        ObjectNode zero = linkedText("zero-number", "0");
+        ObjectNode modulo = linkedOperation("modulo", BlocklyBlockTypes.MATH_MODULO, null);
+        ObjectNode workspace = graphWorkspace("modulo", left, zero, modulo);
+        putMathExpression(workspace, "modulo", "left-number", "zero-number");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        assertThatThrownBy(() -> actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of()))
+                .isInstanceOf(BizException.class)
+                .hasMessage("math_modulo 的除数不能为 0");
+    }
+
+    @Test
+    void shouldRenderGraphMathResultAsAmountFormatInput() {
+        ObjectNode left = linkedText("left-number", "5");
+        ObjectNode right = linkedText("right-number", "5");
+        ObjectNode addition = linkedOperation("add", BlocklyBlockTypes.MATH_ARITHMETIC, "ADD");
+        ObjectNode amount = linkedDecimals("amount", BlocklyBlockTypes.AMOUNT_FORMAT, 2);
+        ObjectNode workspace = graphWorkspace("amount", left, right, addition, amount);
+        putMathExpression(workspace, "add", "left-number", "right-number");
+        putLink(workspace, "add", "amount", "input");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of()).renderedContent()).isEqualTo("10.00");
+    }
+
+    @Test
+    void shouldRenderGraphControlsIfByBranchesAndComparePorts() {
+        ObjectNode amount = paramBlock(1L, "left", ParamType.NUMBER);
+        amount.put("id", "amount");
+        ObjectNode threshold = linkedText("threshold", "2");
+        ObjectNode compare = linkedOperation("compare", BlocklyBlockTypes.LOGIC_COMPARE, "EQ");
+        ObjectNode thenText = linkedText("then", "11");
+        ObjectNode elseText = linkedText("else", "22");
         ObjectNode controlsIf = objectMapper.createObjectNode();
         controlsIf.put("id", "if1");
         controlsIf.put("type", BlocklyBlockTypes.CONTROLS_IF);
 
-        assertThatThrownBy(() -> actualValidator.validateWorkspace(1,
-                linkedWorkspace(controlsIf), 1L, expressionParams, BlocklyValidationMode.DRAFT))
-                .isInstanceOf(BizException.class)
-                .hasMessage("链式条件分支暂未支持");
+        ObjectNode workspace = graphWorkspace("threshold", amount, threshold, compare, thenText, elseText, controlsIf);
+        putLink(workspace, "amount", "compare", "left");
+        putLink(workspace, "threshold", "compare", "right");
+        putLinkWithoutTargetPort(workspace, "if1", "compare");
+        putLink(workspace, "if1", "compare", "condition");
+        putLink(workspace, "if1", "then", "then", "input");
+        putLink(workspace, "if1", "else", "else", "input");
+        workspace.putObject("templateBranches")
+                .putObject("if1")
+                .put("conditionBlockId", "compare")
+                .put("thenBlockId", "then")
+                .put("elseBlockId", "else");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("left", objectMapper.valueToTree(2))).renderedContent())
+                .isEqualTo("11");
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("left", objectMapper.valueToTree(1))).renderedContent())
+                .isEqualTo("22");
+    }
+
+    @Test
+    void shouldRenderGraphForEachBodyFromTailLoopItemFieldChain() {
+        ObjectNode wallets = paramBlock(11L, "wallets", ParamType.OBJECT_ARRAY);
+        wallets.put("id", "wallets");
+        ObjectNode forEach = objectMapper.createObjectNode();
+        forEach.put("id", "loop");
+        forEach.put("type", BlocklyBlockTypes.CONTROLS_FOR_EACH);
+        ObjectNode prefix = linkedText("prefix", "支付");
+        ObjectNode paid = loopItemField("paid", ParamType.NUMBER);
+        paid.put("id", "paid");
+        ObjectNode middle = linkedText("middle", "元，余额");
+        ObjectNode balance = loopItemField("balance", ParamType.NUMBER);
+        balance.put("id", "balance");
+        ObjectNode suffix = linkedText("suffix", "元");
+
+        ObjectNode workspace = graphWorkspace("loop", wallets, forEach, prefix, paid, middle, balance, suffix);
+        workspace.putObject("templateLoops")
+                .putObject("loop")
+                .put("collectionBlockId", "wallets")
+                .put("bodyBlockId", "suffix");
+        putLink(workspace, "prefix", "paid", "input");
+        putLink(workspace, "paid", "middle", "input");
+        putLink(workspace, "middle", "balance", "input");
+        putLink(workspace, "balance", "suffix", "input");
+
+        ObjectNode wallet = objectMapper.createObjectNode();
+        wallet.put("name", "通用账户");
+        wallet.put("paid", 10.00);
+        wallet.put("balance", 230.00);
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("wallets", objectMapper.valueToTree(List.of(wallet))));
+
+        assertThat(result.renderedContent()).isEqualTo("支付10元，余额230元");
+        assertThat(result.usedParams()).containsExactly("wallets");
     }
 
     @Test
@@ -367,6 +538,19 @@ class MsgTemplateServiceImplTest {
         assertThat(evaluateExpression(contains, values)).isEqualTo(true);
         assertThat(evaluateExpression(like, values)).isEqualTo(true);
         assertThat(evaluateExpression(regexNotExecuted, values)).isEqualTo(false);
+    }
+
+    @Test
+    void shouldAllowNumericTextInLogicCompare() throws Exception {
+        ObjectNode greater = binary(BlocklyBlockTypes.LOGIC_COMPARE, "GT",
+                "A", textBlock("10.5"),
+                "B", textJoinBlock("2"));
+        ObjectNode equals = binary(BlocklyBlockTypes.LOGIC_COMPARE, "EQ",
+                "A", paramBlock(1L, "left", ParamType.NUMBER),
+                "B", textBlock("10"));
+
+        assertThat(evaluateExpression(greater, Map.of())).isEqualTo(true);
+        assertThat(evaluateExpression(equals, Map.of("left", objectMapper.valueToTree(10)))).isEqualTo(true);
     }
 
     @Test
@@ -564,6 +748,49 @@ class MsgTemplateServiceImplTest {
     }
 
     @Test
+    void shouldRenderObjectArrayLoopItemFieldsAndEmptyMissingValues() {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("type", BlocklyBlockTypes.TEXT_JOIN);
+        putInput(body, "ADD0", loopItemField("name", ParamType.STRING));
+        putInput(body, "ADD1", textBlock("支付"));
+        putInput(body, "ADD2", unary(BlocklyBlockTypes.AMOUNT_FORMAT, "VALUE",
+                loopItemField("paid", ParamType.NUMBER)));
+        putInput(body, "ADD3", textBlock("元"));
+        putInput(body, "ADD4", loopItemField("missing", ParamType.STRING));
+        putInput(body, "ADD5", loopItemField("remark", ParamType.STRING));
+        ObjectNode forEach = controlsForEach(
+                paramBlock(11L, "wallets", ParamType.OBJECT_ARRAY),
+                body,
+                "，");
+        ObjectNode wallet = objectMapper.createObjectNode();
+        wallet.put("name", "通用账户");
+        wallet.put("paid", 10);
+        wallet.putNull("remark");
+
+        BlocklyRenderResult result = render(forEach, Map.of(
+                "wallets", objectMapper.valueToTree(List.of(wallet))
+        ));
+
+        assertThat(result.renderedContent()).isEqualTo("通用账户支付10.00元");
+        assertThat(result.usedParams()).containsExactly("wallets");
+    }
+
+    @Test
+    void shouldRejectLoopItemFieldOutsideObjectArrayLoop() {
+        ObjectNode invalidField = controlsForEach(
+                paramBlock(8L, "stringItems", ParamType.STRING_ARRAY),
+                loopItemField("name", ParamType.STRING),
+                "");
+
+        assertThatThrownBy(() -> validate(loopItemField("name", ParamType.STRING)))
+                .isInstanceOf(BizException.class)
+                .hasMessage("loop_item_field 只能在对象数组循环体中使用");
+        assertThatThrownBy(() -> validate(invalidField))
+                .isInstanceOf(BizException.class)
+                .hasMessage("loop_item_field 只能在对象数组循环体中使用");
+    }
+
+    @Test
     void shouldReturnEmptyForEmptyArrayAndRejectTooManyItems() {
         ObjectNode forEach = controlsForEach(
                 paramBlock(8L, "stringItems", ParamType.STRING_ARRAY),
@@ -706,6 +933,44 @@ class MsgTemplateServiceImplTest {
         return workspace;
     }
 
+    private ObjectNode graphWorkspace(String entryBlockId, ObjectNode... blocks) {
+        ObjectNode workspace = linkedWorkspace(blocks);
+        workspace.put("templateEntryBlockId", entryBlockId);
+        return workspace;
+    }
+
+    private void putLink(ObjectNode workspace, String sourceId, String targetId, String targetPort) {
+        putLink(workspace, sourceId, "output", targetId, targetPort);
+    }
+
+    private void putLink(ObjectNode workspace,
+                         String sourceId,
+                         String sourcePort,
+                         String targetId,
+                         String targetPort) {
+        ObjectNode link = ((ArrayNode) workspace.get("templateLinks")).addObject();
+        link.put("sourceId", sourceId);
+        link.put("sourcePort", sourcePort);
+        link.put("targetId", targetId);
+        link.put("targetPort", targetPort);
+    }
+
+    private void putLinkWithoutTargetPort(ObjectNode workspace, String sourceId, String targetId) {
+        ObjectNode link = ((ArrayNode) workspace.get("templateLinks")).addObject();
+        link.put("sourceId", sourceId);
+        link.put("sourcePort", "output");
+        link.put("targetId", targetId);
+    }
+
+    private void putMathExpression(ObjectNode workspace, String blockId, String leftBlockId, String rightBlockId) {
+        ObjectNode expressions = workspace.has("templateMathExpressions")
+                ? (ObjectNode) workspace.get("templateMathExpressions")
+                : workspace.putObject("templateMathExpressions");
+        expressions.putObject(blockId)
+                .put("leftValueBlockId", leftBlockId)
+                .put("rightValueBlockId", rightBlockId);
+    }
+
     private ObjectNode binary(String type,
                               String operator,
                               String leftName,
@@ -761,6 +1026,15 @@ class MsgTemplateServiceImplTest {
         return block;
     }
 
+    private ObjectNode loopItemField(String fieldName, ParamType type) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("type", BlocklyBlockTypes.LOOP_ITEM_FIELD);
+        ObjectNode extraState = block.putObject("extraState");
+        extraState.put("fieldName", fieldName);
+        extraState.put("fieldType", type.getCode());
+        return block;
+    }
+
     private void addElseIf(ObjectNode block,
                            int index,
                            ObjectNode condition,
@@ -793,6 +1067,13 @@ class MsgTemplateServiceImplTest {
     private ObjectNode textBlock(String value) {
         ObjectNode block = objectMapper.createObjectNode();
         block.put("type", BlocklyBlockTypes.TEXT);
+        block.putObject("fields").put("TEXT", value);
+        return block;
+    }
+
+    private ObjectNode textJoinBlock(String value) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("type", BlocklyBlockTypes.TEXT_JOIN);
         block.putObject("fields").put("TEXT", value);
         return block;
     }

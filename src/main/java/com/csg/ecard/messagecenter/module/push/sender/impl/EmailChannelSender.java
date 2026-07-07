@@ -11,6 +11,7 @@ import com.csg.ecard.messagecenter.module.push.sender.EmailAttachmentResource;
 import com.csg.ecard.messagecenter.module.push.sender.MessageSendInfo;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
@@ -32,6 +33,7 @@ import java.util.Properties;
  * 邮件发送适配器。
  */
 @Component
+@ConditionalOnProperty(prefix = "message.sender", name = "mode", havingValue = "real", matchIfMissing = true)
 public class EmailChannelSender implements BatchChannelSender {
 
     private final MessageSendProperties properties;

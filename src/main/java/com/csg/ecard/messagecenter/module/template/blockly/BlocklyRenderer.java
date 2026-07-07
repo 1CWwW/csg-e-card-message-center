@@ -15,6 +15,9 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -105,6 +108,7 @@ public class BlocklyRenderer {
             case BlocklyBlockTypes.CONTROLS_IF -> renderControlsIf(block, context);
             case BlocklyBlockTypes.CONTROLS_FOR_EACH -> renderControlsForEach(block, context);
             case BlocklyBlockTypes.LOOP_ITEM_VALUE -> renderLoopItemValue(block, context);
+            case BlocklyBlockTypes.LOOP_ITEM_FIELD -> renderLoopItemField(block, context);
             default -> throw unsupported(blockType);
         };
         if (!includeNext) {
@@ -203,18 +207,19 @@ public class BlocklyRenderer {
         BlocklyRenderValue right = renderInput(block, "B", context);
         boolean result;
         if ("EQ".equals(operator) || "NEQ".equals(operator)) {
-            if (left.type() != right.type()) {
+            BigDecimal leftNumber = numberOrNull(left);
+            BigDecimal rightNumber = numberOrNull(right);
+            if (left.type() != right.type() && (leftNumber == null || rightNumber == null)) {
                 throw new BizException(ErrorCode.RENDER_FAILED,
                         "logic_compare 的 EQ、NEQ 只允许同类型值比较");
             }
-            boolean equal = left.type() == BlocklyValueType.NUMBER
-                    ? requireNumber(left, BlocklyBlockTypes.LOGIC_COMPARE)
-                    .compareTo(requireNumber(right, BlocklyBlockTypes.LOGIC_COMPARE)) == 0
+            boolean equal = leftNumber != null && rightNumber != null
+                    ? leftNumber.compareTo(rightNumber) == 0
                     : Objects.equals(left.value(), right.value());
             result = "EQ".equals(operator) ? equal : !equal;
         } else {
-            int compared = requireNumber(left, BlocklyBlockTypes.LOGIC_COMPARE)
-                    .compareTo(requireNumber(right, BlocklyBlockTypes.LOGIC_COMPARE));
+            int compared = requireGraphNumber(left, BlocklyBlockTypes.LOGIC_COMPARE)
+                    .compareTo(requireGraphNumber(right, BlocklyBlockTypes.LOGIC_COMPARE));
             result = switch (operator) {
                 case "LT" -> compared < 0;
                 case "LTE" -> compared <= 0;
@@ -319,6 +324,8 @@ public class BlocklyRenderer {
             itemType = BlocklyValueType.STRING;
         } else if (listValue.type() == BlocklyValueType.NUMBER_ARRAY) {
             itemType = BlocklyValueType.NUMBER;
+        } else if (listValue.type() == BlocklyValueType.OBJECT_ARRAY) {
+            itemType = BlocklyValueType.OBJECT;
         } else {
             throw new BizException(ErrorCode.RENDER_FAILED,
                     "controls_forEach 的 LIST 必须返回数组");
@@ -373,6 +380,52 @@ public class BlocklyRenderer {
                     "loop_item_value 的 itemType 与循环元素类型不一致");
         }
         return new BlocklyRenderValue(declaredType, context.currentLoopItemValue());
+    }
+
+    private BlocklyRenderValue renderLoopItemField(JsonNode block, BlockRenderContext context) {
+        if (!context.hasLoopContext() || context.currentLoopItemType() != BlocklyValueType.OBJECT) {
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    "loop_item_field 只能在对象数组循环体中使用");
+        }
+        JsonNode extraState = block.path("extraState");
+        String fieldName = extraState.path("fieldName").asText();
+        if (!StringUtils.hasText(fieldName)) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "loop_item_field 缺少 fieldName");
+        }
+        BlocklyValueType fieldType = parseLoopItemFieldType(extraState.path("fieldType").asText());
+        Object item = context.currentLoopItemValue();
+        if (!(item instanceof JsonNode itemNode) || !itemNode.isObject()) {
+            return new BlocklyRenderValue(fieldType, null);
+        }
+        JsonNode fieldValue = itemNode.get(fieldName);
+        if (fieldValue == null || fieldValue.isNull()) {
+            return new BlocklyRenderValue(fieldType, null);
+        }
+        return switch (fieldType) {
+            case NUMBER -> fieldValue.isNumber()
+                    ? new BlocklyRenderValue(BlocklyValueType.NUMBER, fieldValue.decimalValue())
+                    : new BlocklyRenderValue(BlocklyValueType.NUMBER, null);
+            case STRING -> new BlocklyRenderValue(BlocklyValueType.STRING, fieldValue.asText());
+            case TIME -> new BlocklyRenderValue(BlocklyValueType.TIME, fieldValue.asText());
+            default -> throw new BizException(ErrorCode.RENDER_FAILED,
+                    "loop_item_field 的 fieldType 必须是 STRING、NUMBER 或 TIME");
+        };
+    }
+
+    private BlocklyValueType parseLoopItemFieldType(String fieldType) {
+        if (!StringUtils.hasText(fieldType)) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "loop_item_field 缺少 fieldType");
+        }
+        try {
+            BlocklyValueType type = BlocklyValueType.valueOf(fieldType);
+            if (type == BlocklyValueType.STRING || type == BlocklyValueType.NUMBER || type == BlocklyValueType.TIME) {
+                return type;
+            }
+        } catch (IllegalArgumentException ignored) {
+            // 统一走下面的业务错误。
+        }
+        throw new BizException(ErrorCode.RENDER_FAILED,
+                "loop_item_field 的 fieldType 必须是 STRING、NUMBER 或 TIME");
     }
 
     private List<?> requireList(Object value) {
@@ -442,6 +495,35 @@ public class BlocklyRenderer {
                 blockType + " 的输入必须为数字");
     }
 
+    private BigDecimal requireGraphNumber(BlocklyRenderValue value, String blockType) {
+        if (value.value() instanceof BigDecimal number) {
+            return number;
+        }
+        if (value.type() == BlocklyValueType.STRING && value.value() instanceof String text
+                && StringUtils.hasText(text)) {
+            try {
+                return new BigDecimal(text.trim());
+            } catch (NumberFormatException ignored) {
+                // 统一走数值类型错误。
+            }
+        }
+        return requireNumber(value, blockType);
+    }
+
+    private BigDecimal numberOrNull(BlocklyRenderValue value) {
+        if (value.value() instanceof BigDecimal number) {
+            return number;
+        }
+        if (value.value() instanceof String text && StringUtils.hasText(text)) {
+            try {
+                return new BigDecimal(text.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     private boolean requireBoolean(BlocklyRenderValue value, String blockType) {
         return (Boolean) requireValue(value, BlocklyValueType.BOOLEAN,
                 blockType + " 的输入必须为布尔值");
@@ -471,7 +553,10 @@ public class BlocklyRenderer {
 
     private String operator(JsonNode block, Set<String> supported) {
         String blockType = block.path("type").asText();
-        JsonNode node = block.path("fields").get("OP");
+        JsonNode node = block.path("extraState").get("operation");
+        if (node == null || node.isMissingNode()) {
+            node = block.path("fields").get("OP");
+        }
         String operator = node != null && node.isTextual() ? node.textValue() : null;
         if (!StringUtils.hasText(operator) || !supported.contains(operator)) {
             throw unsupportedOperator(blockType);
@@ -571,6 +656,16 @@ public class BlocklyRenderer {
     }
 
     private void validateLinkedRenderable(JsonNode blocklyJson) {
+        JsonNode workspace = blocklyJson.path("workspace");
+        if (hasGraphMetadata(workspace)) {
+            GraphWorkspace graph = GraphWorkspace.from(workspace, buildBlockIndex(workspace.path("blocks").path("blocks")));
+            JsonNode entryBlock = graph.requireEntryBlock();
+            validateSupportedTree(entryBlock, false);
+            if (!hasPotentialContent(entryBlock, false)) {
+                throw new BizException(ErrorCode.TEMPLATE_EMPTY, "模板正文不能为空");
+            }
+            return;
+        }
         List<JsonNode> orderedBlocks = requireLinkedOrderedBlocks(blocklyJson);
         boolean hasContent = false;
         for (JsonNode block : orderedBlocks) {
@@ -588,6 +683,17 @@ public class BlocklyRenderer {
                                                   Map<String, JsonNode> values) {
         validateLinkedRenderable(blocklyJson);
         BlockRenderContext context = new BlockRenderContext(sceneId, params, values, valueValidator);
+        JsonNode workspace = blocklyJson.path("workspace");
+        if (hasGraphMetadata(workspace)) {
+            GraphWorkspace graph = GraphWorkspace.from(workspace, buildBlockIndex(workspace.path("blocks").path("blocks")));
+            BlocklyRenderValue rendered = renderGraphValue(graph.entryBlockId(), graph, context, new HashSet<>());
+            String content = requireText(rendered, graph.requireEntryBlock().path("type").asText());
+            if (!StringUtils.hasText(content)) {
+                throw new BizException(ErrorCode.TEMPLATE_EMPTY, "模板正文不能为空");
+            }
+            validateRenderedContentSize(content);
+            return new BlocklyRenderResult(content, context.getUsedParams(), context.getWarnings());
+        }
         List<JsonNode> orderedBlocks = requireLinkedOrderedBlocks(blocklyJson);
         boolean[] consumed = linkedConsumedFlags(orderedBlocks);
         StringBuilder content = new StringBuilder();
@@ -659,6 +765,326 @@ public class BlocklyRenderer {
         };
     }
 
+    private BlocklyRenderValue renderGraphValue(String blockId,
+                                                GraphWorkspace graph,
+                                                BlockRenderContext context,
+                                                Set<String> visiting) {
+        JsonNode block = graph.requireBlock(blockId);
+        if (!visiting.add(blockId)) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "Blockly 图结构存在循环引用：" + blockId);
+        }
+        try {
+            String blockType = block.path("type").asText();
+            return switch (blockType) {
+                case BlocklyBlockTypes.TEXT -> prependGraphInput(blockId, graph, context, visiting, renderText(block));
+                case BlocklyBlockTypes.TEXT_JOIN -> renderGraphTextJoin(blockId, block, graph, context, visiting);
+                case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
+                        prependGraphInput(blockId, graph, context, visiting, context.resolveParam(block));
+                case BlocklyBlockTypes.AMOUNT_FORMAT -> renderGraphAmount(blockId, block, graph, context, visiting);
+                case BlocklyBlockTypes.TIME_FORMAT -> renderGraphTime(blockId, block, graph, context, visiting);
+                case BlocklyBlockTypes.MATH_ARITHMETIC -> renderGraphMathArithmetic(blockId, block, graph, context, visiting);
+                case BlocklyBlockTypes.MATH_MODULO -> renderGraphModulo(blockId, graph, context, visiting);
+                case BlocklyBlockTypes.LOGIC_COMPARE -> renderGraphCompare(blockId, block, graph, context, visiting);
+                case BlocklyBlockTypes.LOGIC_OPERATION -> renderGraphLogicOperation(blockId, block, graph, context, visiting);
+                case BlocklyBlockTypes.LOGIC_NEGATE -> renderGraphLogicNegate(blockId, graph, context, visiting);
+                case BlocklyBlockTypes.STRING_CONTAINS -> renderGraphStringContains(blockId, graph, context, visiting);
+                case BlocklyBlockTypes.STRING_LIKE -> renderGraphStringLike(blockId, graph, context, visiting);
+                case BlocklyBlockTypes.CONTROLS_IF -> renderGraphControlsIf(blockId, graph, context, visiting);
+                case BlocklyBlockTypes.CONTROLS_FOR_EACH -> renderGraphControlsForEach(blockId, block, graph, context, visiting);
+                case BlocklyBlockTypes.LOOP_ITEM_VALUE ->
+                        prependGraphInput(blockId, graph, context, visiting, renderLoopItemValue(block, context));
+                case BlocklyBlockTypes.LOOP_ITEM_FIELD ->
+                        prependGraphInput(blockId, graph, context, visiting, renderLoopItemField(block, context));
+                default -> throw unsupported(blockType);
+            };
+        } finally {
+            visiting.remove(blockId);
+        }
+    }
+
+    private BlocklyRenderValue renderGraphTextJoin(String blockId,
+                                                   JsonNode block,
+                                                   GraphWorkspace graph,
+                                                   BlockRenderContext context,
+                                                   Set<String> visiting) {
+        String suffix = text(block.path("fields").get("TEXT"));
+        if (suffix == null) {
+            suffix = "";
+        }
+        String inputId = graph.inputSourceId(blockId, "input");
+        if (!StringUtils.hasText(inputId)) {
+            return new BlocklyRenderValue(BlocklyValueType.STRING, suffix);
+        }
+        BlocklyRenderValue inputValue = renderGraphValue(inputId, graph, context, visiting);
+        return new BlocklyRenderValue(BlocklyValueType.STRING, inputValue.asText() + suffix);
+    }
+
+    private BlocklyRenderValue prependGraphInput(String blockId,
+                                                 GraphWorkspace graph,
+                                                 BlockRenderContext context,
+                                                 Set<String> visiting,
+                                                 BlocklyRenderValue current) {
+        String inputId = graph.inputSourceId(blockId, "input");
+        if (!StringUtils.hasText(inputId)) {
+            return current;
+        }
+        JsonNode inputBlock = graph.requireBlock(inputId);
+        BlocklyRenderValue prefix = renderGraphValue(inputId, graph, context, visiting);
+        return new BlocklyRenderValue(BlocklyValueType.STRING,
+                requireText(prefix, inputBlock.path("type").asText()) + current.asText());
+    }
+
+    private BlocklyRenderValue renderGraphAmount(String blockId,
+                                                 JsonNode block,
+                                                 GraphWorkspace graph,
+                                                 BlockRenderContext context,
+                                                 Set<String> visiting) {
+        BigDecimal number = requireGraphNumber(renderGraphInput(blockId, graph, context, visiting,
+                "VALUE", "input"), BlocklyBlockTypes.AMOUNT_FORMAT);
+        return new BlocklyRenderValue(BlocklyValueType.STRING,
+                number.setScale(decimalPlaces(block), RoundingMode.HALF_UP).toPlainString());
+    }
+
+    private BlocklyRenderValue renderGraphTime(String blockId,
+                                               JsonNode block,
+                                               GraphWorkspace graph,
+                                               BlockRenderContext context,
+                                               Set<String> visiting) {
+        String value = requireValue(renderGraphInput(blockId, graph, context, visiting,
+                "VALUE", "input"), BlocklyValueType.TIME,
+                "time_format 的输入必须为时间").toString();
+        try {
+            return new BlocklyRenderValue(BlocklyValueType.STRING,
+                    LocalDateTime.parse(value, TIME_FORMATTER).format(TIME_FORMATTER));
+        } catch (DateTimeParseException ex) {
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    "time_format 的输入必须符合 yyyy-MM-dd HH:mm:ss");
+        }
+    }
+
+    private BlocklyRenderValue renderGraphMathArithmetic(String blockId,
+                                                         JsonNode block,
+                                                         GraphWorkspace graph,
+                                                         BlockRenderContext context,
+                                                         Set<String> visiting) {
+        String operator = linkedOperator(block, Set.of("ADD", "MINUS", "MULTIPLY", "DIVIDE"));
+        BigDecimal left = requireGraphNumber(renderGraphMathInput(blockId, graph, context, visiting,
+                "leftValueBlockId", "A", "leftValue", "input"), BlocklyBlockTypes.MATH_ARITHMETIC);
+        BigDecimal right = requireGraphNumber(renderGraphMathInput(blockId, graph, context, visiting,
+                "rightValueBlockId", "B", "rightValue"), BlocklyBlockTypes.MATH_ARITHMETIC);
+        BigDecimal result = switch (operator) {
+            case "ADD" -> left.add(right);
+            case "MINUS" -> left.subtract(right);
+            case "MULTIPLY" -> left.multiply(right);
+            case "DIVIDE" -> divide(left, right, BlocklyBlockTypes.MATH_ARITHMETIC);
+            default -> throw unsupportedOperator(BlocklyBlockTypes.MATH_ARITHMETIC);
+        };
+        return new BlocklyRenderValue(BlocklyValueType.NUMBER, result);
+    }
+
+    private BlocklyRenderValue renderGraphModulo(String blockId,
+                                                 GraphWorkspace graph,
+                                                 BlockRenderContext context,
+                                                 Set<String> visiting) {
+        BigDecimal dividend = requireGraphNumber(renderGraphMathInput(blockId, graph, context, visiting,
+                "leftValueBlockId", "DIVIDEND", "leftValue", "input"), BlocklyBlockTypes.MATH_MODULO);
+        BigDecimal divisor = requireGraphNumber(renderGraphMathInput(blockId, graph, context, visiting,
+                "rightValueBlockId", "DIVISOR", "rightValue"), BlocklyBlockTypes.MATH_MODULO);
+        if (divisor.compareTo(BigDecimal.ZERO) == 0) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "math_modulo 的除数不能为 0");
+        }
+        return new BlocklyRenderValue(BlocklyValueType.NUMBER, dividend.remainder(divisor));
+    }
+
+    private BlocklyRenderValue renderGraphCompare(String blockId,
+                                                  JsonNode block,
+                                                  GraphWorkspace graph,
+                                                  BlockRenderContext context,
+                                                  Set<String> visiting) {
+        String operator = linkedOperator(block, Set.of("EQ", "NEQ", "LT", "LTE", "GT", "GTE"));
+        BlocklyRenderValue left = renderGraphInput(blockId, graph, context, visiting, "leftValue", "left", "A", "input");
+        BlocklyRenderValue right = renderGraphInput(blockId, graph, context, visiting, "rightValue", "right", "B");
+        boolean result;
+        if ("EQ".equals(operator) || "NEQ".equals(operator)) {
+            BigDecimal leftNumber = numberOrNull(left);
+            BigDecimal rightNumber = numberOrNull(right);
+            if (left.type() != right.type() && (leftNumber == null || rightNumber == null)) {
+                throw new BizException(ErrorCode.RENDER_FAILED,
+                        "logic_compare 的 EQ、NEQ 只允许同类型值比较");
+            }
+            boolean equal = leftNumber != null && rightNumber != null
+                    ? leftNumber.compareTo(rightNumber) == 0
+                    : Objects.equals(left.value(), right.value());
+            result = "EQ".equals(operator) ? equal : !equal;
+        } else {
+            int compared = requireGraphNumber(left, BlocklyBlockTypes.LOGIC_COMPARE)
+                    .compareTo(requireGraphNumber(right, BlocklyBlockTypes.LOGIC_COMPARE));
+            result = switch (operator) {
+                case "LT" -> compared < 0;
+                case "LTE" -> compared <= 0;
+                case "GT" -> compared > 0;
+                case "GTE" -> compared >= 0;
+                default -> throw unsupportedOperator(BlocklyBlockTypes.LOGIC_COMPARE);
+            };
+        }
+        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, result);
+    }
+
+    private BlocklyRenderValue renderGraphLogicOperation(String blockId,
+                                                         JsonNode block,
+                                                         GraphWorkspace graph,
+                                                         BlockRenderContext context,
+                                                         Set<String> visiting) {
+        String operator = linkedOperator(block, Set.of("AND", "OR"));
+        boolean left = requireBoolean(renderGraphInput(blockId, graph, context, visiting,
+                "leftCondition", "A", "input"), BlocklyBlockTypes.LOGIC_OPERATION);
+        if ("AND".equals(operator) && !left) {
+            return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, false);
+        }
+        if ("OR".equals(operator) && left) {
+            return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, true);
+        }
+        boolean right = requireBoolean(renderGraphInput(blockId, graph, context, visiting,
+                "rightCondition", "B"), BlocklyBlockTypes.LOGIC_OPERATION);
+        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN,
+                "AND".equals(operator) ? left && right : left || right);
+    }
+
+    private BlocklyRenderValue renderGraphLogicNegate(String blockId,
+                                                      GraphWorkspace graph,
+                                                      BlockRenderContext context,
+                                                      Set<String> visiting) {
+        boolean value = requireBoolean(renderGraphInput(blockId, graph, context, visiting,
+                "BOOL", "input"), BlocklyBlockTypes.LOGIC_NEGATE);
+        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, !value);
+    }
+
+    private BlocklyRenderValue renderGraphStringContains(String blockId,
+                                                         GraphWorkspace graph,
+                                                         BlockRenderContext context,
+                                                         Set<String> visiting) {
+        String text = requireString(renderGraphInput(blockId, graph, context, visiting,
+                "TEXT", "leftValue", "input"), BlocklyBlockTypes.STRING_CONTAINS, "TEXT");
+        String substring = requireString(renderGraphInput(blockId, graph, context, visiting,
+                "SUBSTRING", "rightValue"), BlocklyBlockTypes.STRING_CONTAINS, "SUBSTRING");
+        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, text.contains(substring));
+    }
+
+    private BlocklyRenderValue renderGraphStringLike(String blockId,
+                                                     GraphWorkspace graph,
+                                                     BlockRenderContext context,
+                                                     Set<String> visiting) {
+        String text = requireString(renderGraphInput(blockId, graph, context, visiting,
+                "TEXT", "leftValue", "input"), BlocklyBlockTypes.STRING_LIKE, "TEXT");
+        String pattern = requireString(renderGraphInput(blockId, graph, context, visiting,
+                "PATTERN", "rightValue"), BlocklyBlockTypes.STRING_LIKE, "PATTERN");
+        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN,
+                Pattern.compile(toLikeRegex(pattern), Pattern.DOTALL).matcher(text).matches());
+    }
+
+    private BlocklyRenderValue renderGraphControlsIf(String blockId,
+                                                     GraphWorkspace graph,
+                                                     BlockRenderContext context,
+                                                     Set<String> visiting) {
+        JsonNode branch = graph.requireBranch(blockId);
+        String conditionBlockId = requiredGraphText(branch, "conditionBlockId", "controls_if 缺少 conditionBlockId");
+        String thenBlockId = requiredGraphText(branch, "thenBlockId", "controls_if 缺少 thenBlockId");
+        String elseBlockId = requiredGraphText(branch, "elseBlockId", "controls_if 缺少 elseBlockId");
+        boolean matched = requireBoolean(renderGraphValue(conditionBlockId, graph, context, visiting),
+                BlocklyBlockTypes.CONTROLS_IF);
+        String targetBlockId = matched ? thenBlockId : elseBlockId;
+        JsonNode targetBlock = graph.requireBlock(targetBlockId);
+        return new BlocklyRenderValue(BlocklyValueType.STRING,
+                requireConditionalText(renderGraphValue(targetBlockId, graph, context, visiting),
+                        targetBlock.path("type").asText()));
+    }
+
+    private BlocklyRenderValue renderGraphControlsForEach(String blockId,
+                                                          JsonNode block,
+                                                          GraphWorkspace graph,
+                                                          BlockRenderContext context,
+                                                          Set<String> visiting) {
+        if (context.hasLoopContext()) {
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    "controls_forEach 暂不支持嵌套循环");
+        }
+        JsonNode loop = graph.requireLoop(blockId);
+        String collectionBlockId = requiredGraphText(loop, "collectionBlockId",
+                "controls_forEach 缺少 collectionBlockId");
+        String bodyBlockId = requiredGraphText(loop, "bodyBlockId", "controls_forEach 缺少 bodyBlockId");
+        BlocklyRenderValue listValue = renderGraphValue(collectionBlockId, graph, context, visiting);
+        BlocklyValueType itemType;
+        if (listValue.type() == BlocklyValueType.STRING_ARRAY) {
+            itemType = BlocklyValueType.STRING;
+        } else if (listValue.type() == BlocklyValueType.NUMBER_ARRAY) {
+            itemType = BlocklyValueType.NUMBER;
+        } else if (listValue.type() == BlocklyValueType.OBJECT_ARRAY) {
+            itemType = BlocklyValueType.OBJECT;
+        } else {
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    "controls_forEach 的 collectionBlockId 必须返回数组");
+        }
+        List<?> items = listValue.value() == null ? List.of() : requireList(listValue.value());
+        if (items.size() > MAX_LOOP_ITERATIONS) {
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    "controls_forEach 鐨勬暟缁勫厓绱犳暟閲忎笉鑳借秴杩?" + MAX_LOOP_ITERATIONS);
+        }
+        String separator = separator(block);
+        StringBuilder result = new StringBuilder();
+        for (Object item : items) {
+            context.pushLoopContext(itemType, item);
+            try {
+                JsonNode bodyBlock = graph.requireBlock(bodyBlockId);
+                BlocklyRenderValue body = renderGraphValue(bodyBlockId, graph, context, visiting);
+                if (body.type() != BlocklyValueType.STRING || body.value() == null) {
+                    throw new BizException(ErrorCode.RENDER_FAILED,
+                            "controls_forEach 的 bodyBlockId 必须返回字符串");
+                }
+                if (!result.isEmpty()) {
+                    result.append(separator);
+                }
+                result.append(requireText(body, bodyBlock.path("type").asText()));
+                validateRenderedContentSize(result.toString());
+            } finally {
+                context.popLoopContext();
+            }
+        }
+        return new BlocklyRenderValue(BlocklyValueType.STRING, result.toString());
+    }
+
+    private BlocklyRenderValue renderGraphInput(String blockId,
+                                                GraphWorkspace graph,
+                                                BlockRenderContext context,
+                                                Set<String> visiting,
+                                                String... ports) {
+        String sourceId = graph.inputSourceId(blockId, ports);
+        if (!StringUtils.hasText(sourceId)) {
+            JsonNode block = graph.requireBlock(blockId);
+            for (String port : ports) {
+                JsonNode child = activeBlock(block.path("inputs").get(port));
+                if (child != null) {
+                    return renderNode(child, context, false);
+                }
+            }
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    block.path("type").asText() + " 缺少输入 " + ports[0]);
+        }
+        return renderGraphValue(sourceId, graph, context, visiting);
+    }
+
+    private BlocklyRenderValue renderGraphMathInput(String blockId,
+                                                    GraphWorkspace graph,
+                                                    BlockRenderContext context,
+                                                    Set<String> visiting,
+                                                    String expressionField,
+                                                    String... fallbackPorts) {
+        String sourceId = graph.mathInputSourceId(blockId, expressionField);
+        if (StringUtils.hasText(sourceId)) {
+            return renderGraphValue(sourceId, graph, context, visiting);
+        }
+        return renderGraphInput(blockId, graph, context, visiting, fallbackPorts);
+    }
+
     private BlocklyRenderValue renderLinkedMathArithmetic(int index,
                                                           List<JsonNode> orderedBlocks,
                                                           BlockRenderContext context) {
@@ -698,7 +1124,11 @@ public class BlocklyRenderer {
         BlocklyRenderValue right = linkedOperand(index + 1, orderedBlocks, context);
         boolean result;
         if ("EQ".equals(operator) || "NEQ".equals(operator)) {
-            boolean equal = Objects.equals(left.asText(), right.asText());
+            BigDecimal leftNumber = numberOrNull(left);
+            BigDecimal rightNumber = numberOrNull(right);
+            boolean equal = leftNumber != null && rightNumber != null
+                    ? leftNumber.compareTo(rightNumber) == 0
+                    : Objects.equals(left.asText(), right.asText());
             result = "EQ".equals(operator) ? equal : !equal;
         } else {
             int compared = requireLinkedNumber(left, "比较节点前后必须是数值")
@@ -1057,12 +1487,326 @@ public class BlocklyRenderer {
                 && LINKED_NODE_MODE.equals(text(workspace.get("templateNodeMode")));
     }
 
+    private boolean hasGraphMetadata(JsonNode workspace) {
+        return workspace != null
+                && workspace.isObject()
+                && ((workspace.path("templateLinks").isArray() && !workspace.path("templateLinks").isEmpty())
+                || (workspace.path("templateMathExpressions").isObject()
+                && !workspace.path("templateMathExpressions").isEmpty())
+                || (workspace.path("templateBranches").isObject() && !workspace.path("templateBranches").isEmpty())
+                || (workspace.path("templateLoops").isObject() && !workspace.path("templateLoops").isEmpty()));
+    }
+
+    private String requiredGraphText(JsonNode node, String field, String message) {
+        String value = text(node.get(field));
+        if (!StringUtils.hasText(value)) {
+            throw new BizException(ErrorCode.RENDER_FAILED, message);
+        }
+        return value;
+    }
+
     private BizException unsupported(String blockType) {
         return new BizException(ErrorCode.RENDER_FAILED,
                 "当前模板包含不支持的节点类型：" + blockType);
     }
 
     private record ControlsIfState(int elseIfCount, boolean hasElse) {
+    }
+
+    private static final class GraphWorkspace {
+
+        private final Map<String, JsonNode> blocks;
+        private final Map<String, Map<String, String>> inputs;
+        private final Map<String, List<String>> orderedInputs;
+        private final Map<String, JsonNode> mathExpressions;
+        private final Map<String, JsonNode> branches;
+        private final Map<String, JsonNode> loops;
+        private final String entryBlockId;
+
+        private GraphWorkspace(Map<String, JsonNode> blocks,
+                               Map<String, Map<String, String>> inputs,
+                               Map<String, List<String>> orderedInputs,
+                               Map<String, JsonNode> mathExpressions,
+                               Map<String, JsonNode> branches,
+                               Map<String, JsonNode> loops,
+                               String entryBlockId) {
+            this.blocks = blocks;
+            this.inputs = inputs;
+            this.orderedInputs = orderedInputs;
+            this.mathExpressions = mathExpressions;
+            this.branches = branches;
+            this.loops = loops;
+            this.entryBlockId = entryBlockId;
+        }
+
+        private static GraphWorkspace from(JsonNode workspace, Map<String, JsonNode> blockMap) {
+            Map<String, Map<String, String>> inputs = new LinkedHashMap<>();
+            Map<String, List<String>> orderedInputs = new LinkedHashMap<>();
+            JsonNode links = workspace.path("templateLinks");
+            if (links.isArray()) {
+                for (JsonNode link : links) {
+                    String sourceId = firstText(link, "sourceId", "sourceBlockId", "fromBlockId", "fromId");
+                    String targetId = firstText(link, "targetId", "targetBlockId", "toBlockId", "toId");
+                    if (!StringUtils.hasText(sourceId) || !StringUtils.hasText(targetId)
+                            || sourceId.equals(targetId)) {
+                        continue;
+                    }
+                    String sourcePort = firstText(link, "sourcePort", "sourceOutput", "fromPort");
+                    if (StringUtils.hasText(sourcePort) && !"output".equals(sourcePort)) {
+                        continue;
+                    }
+                    String targetPort = firstText(link, "targetPort", "targetInput");
+                    if (!StringUtils.hasText(targetPort)) {
+                        targetPort = inferredTargetPort(blockMap.get(targetId));
+                    }
+                    targetPort = supportedTargetPort(blockMap.get(targetId), targetPort);
+                    if (!StringUtils.hasText(targetPort)) {
+                        continue;
+                    }
+                    inputs.computeIfAbsent(targetId, ignored -> new LinkedHashMap<>())
+                            .putIfAbsent(targetPort, sourceId);
+                    orderedInputs.computeIfAbsent(targetId, ignored -> new ArrayList<>()).add(sourceId);
+                }
+            }
+            Map<String, JsonNode> mathExpressions = objectFields(workspace.path("templateMathExpressions"));
+            Map<String, JsonNode> branches = objectFields(workspace.path("templateBranches"));
+            Map<String, JsonNode> loops = objectFields(workspace.path("templateLoops"));
+            Set<String> dependencyIds = dependencyIds(inputs, mathExpressions, branches, loops);
+            String entryBlockId = firstText(workspace, "templateEntryBlockId", "entryBlockId");
+            String inferredRootId = inferredRootId(blockMap, branches, loops, dependencyIds);
+            if (StringUtils.hasText(inferredRootId)
+                    && (!StringUtils.hasText(entryBlockId)
+                    || dependencyIds.contains(entryBlockId)
+                    || !isGraphRootBlock(blockMap.get(entryBlockId)))) {
+                entryBlockId = inferredRootId;
+            }
+            if (!StringUtils.hasText(entryBlockId) && !blockMap.isEmpty()) {
+                entryBlockId = blockMap.keySet().iterator().next();
+            }
+            return new GraphWorkspace(blockMap, inputs, orderedInputs, mathExpressions, branches, loops, entryBlockId);
+        }
+
+        private String entryBlockId() {
+            return entryBlockId;
+        }
+
+        private JsonNode requireEntryBlock() {
+            if (!StringUtils.hasText(entryBlockId)) {
+                throw new BizException(ErrorCode.TEMPLATE_EMPTY, "模板内容不能为空");
+            }
+            return requireBlock(entryBlockId);
+        }
+
+        private JsonNode requireBlock(String blockId) {
+            JsonNode block = blocks.get(blockId);
+            if (block == null) {
+                throw new BizException(ErrorCode.RENDER_FAILED, "模板节点不存在：" + blockId);
+            }
+            return block;
+        }
+
+        private JsonNode requireBranch(String blockId) {
+            JsonNode branch = branches.get(blockId);
+            if (branch == null || !branch.isObject()) {
+                throw new BizException(ErrorCode.RENDER_FAILED, "controls_if 缺少分支结构：" + blockId);
+            }
+            return branch;
+        }
+
+        private JsonNode requireLoop(String blockId) {
+            JsonNode loop = loops.get(blockId);
+            if (loop == null || !loop.isObject()) {
+                throw new BizException(ErrorCode.RENDER_FAILED, "controls_forEach 缺少循环结构：" + blockId);
+            }
+            return loop;
+        }
+
+        private String inputSourceId(String targetId, String... ports) {
+            Map<String, String> byPort = inputs.get(targetId);
+            if (byPort == null) {
+                return null;
+            }
+            for (String port : ports) {
+                String sourceId = byPort.get(port);
+                if (StringUtils.hasText(sourceId)) {
+                    return sourceId;
+                }
+            }
+            return null;
+        }
+
+        private List<String> inputSourceIds(String targetId) {
+            return orderedInputs.getOrDefault(targetId, List.of());
+        }
+
+        private String mathInputSourceId(String blockId, String field) {
+            JsonNode expression = mathExpressions.get(blockId);
+            return firstText(expression, field);
+        }
+
+        private static Set<String> dependencyIds(Map<String, Map<String, String>> inputs,
+                                                 Map<String, JsonNode> mathExpressions,
+                                                 Map<String, JsonNode> branches,
+                                                 Map<String, JsonNode> loops) {
+            Set<String> result = new HashSet<>();
+            for (Map<String, String> byPort : inputs.values()) {
+                result.addAll(byPort.values());
+            }
+            for (JsonNode expression : mathExpressions.values()) {
+                addText(result, expression, "leftValueBlockId");
+                addText(result, expression, "rightValueBlockId");
+            }
+            for (JsonNode branch : branches.values()) {
+                addText(result, branch, "conditionBlockId");
+                addText(result, branch, "thenBlockId");
+                addText(result, branch, "elseBlockId");
+            }
+            for (JsonNode loop : loops.values()) {
+                addText(result, loop, "collectionBlockId");
+                addText(result, loop, "bodyBlockId");
+            }
+            return result;
+        }
+
+        private static String inferredRootId(Map<String, JsonNode> blocks,
+                                             Map<String, JsonNode> branches,
+                                             Map<String, JsonNode> loops,
+                                             Set<String> dependencyIds) {
+            String rootId = singleRoot(branches.keySet(), dependencyIds);
+            if (StringUtils.hasText(rootId)) {
+                return rootId;
+            }
+            rootId = singleRoot(loops.keySet(), dependencyIds);
+            if (StringUtils.hasText(rootId)) {
+                return rootId;
+            }
+            rootId = singleRoot(blocks.keySet(), dependencyIds);
+            if (StringUtils.hasText(rootId)) {
+                return rootId;
+            }
+            String candidate = null;
+            for (Map.Entry<String, JsonNode> entry : blocks.entrySet()) {
+                String blockType = entry.getValue().path("type").asText();
+                if ((BlocklyBlockTypes.CONTROLS_IF.equals(blockType)
+                        || BlocklyBlockTypes.CONTROLS_FOR_EACH.equals(blockType))
+                        && !dependencyIds.contains(entry.getKey())) {
+                    if (candidate != null) {
+                        return null;
+                    }
+                    candidate = entry.getKey();
+                }
+            }
+            return candidate;
+        }
+
+        private static String singleRoot(Set<String> ids, Set<String> dependencyIds) {
+            String candidate = null;
+            for (String id : ids) {
+                if (dependencyIds.contains(id)) {
+                    continue;
+                }
+                if (candidate != null) {
+                    return null;
+                }
+                candidate = id;
+            }
+            return candidate;
+        }
+
+        private static void addText(Set<String> values, JsonNode node, String field) {
+            String value = firstText(node, field);
+            if (StringUtils.hasText(value)) {
+                values.add(value);
+            }
+        }
+
+        private static boolean isGraphRootBlock(JsonNode block) {
+            if (block == null || !block.isObject()) {
+                return false;
+            }
+            String blockType = block.path("type").asText();
+            return BlocklyBlockTypes.CONTROLS_IF.equals(blockType)
+                    || BlocklyBlockTypes.CONTROLS_FOR_EACH.equals(blockType);
+        }
+
+        private static String inferredTargetPort(JsonNode targetBlock) {
+            if (targetBlock == null || !targetBlock.isObject()) {
+                return null;
+            }
+            String blockType = targetBlock.path("type").asText();
+            return switch (blockType) {
+                case BlocklyBlockTypes.TEXT,
+                        BlocklyBlockTypes.SCENE_PARAM_VALUE,
+                        BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF,
+                        BlocklyBlockTypes.LOOP_ITEM_VALUE,
+                        BlocklyBlockTypes.LOOP_ITEM_FIELD,
+                        BlocklyBlockTypes.TEXT_JOIN,
+                        BlocklyBlockTypes.AMOUNT_FORMAT,
+                        BlocklyBlockTypes.TIME_FORMAT,
+                        BlocklyBlockTypes.LOGIC_NEGATE -> "input";
+                default -> null;
+            };
+        }
+
+        private static String supportedTargetPort(JsonNode targetBlock, String targetPort) {
+            if (targetBlock == null || !targetBlock.isObject() || !StringUtils.hasText(targetPort)) {
+                return null;
+            }
+            String blockType = targetBlock.path("type").asText();
+            return switch (blockType) {
+                case BlocklyBlockTypes.TEXT,
+                        BlocklyBlockTypes.SCENE_PARAM_VALUE,
+                        BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF,
+                        BlocklyBlockTypes.LOOP_ITEM_VALUE,
+                        BlocklyBlockTypes.LOOP_ITEM_FIELD ->
+                        "input".equals(targetPort) ? targetPort : null;
+                case BlocklyBlockTypes.TEXT_JOIN -> targetPort;
+                case BlocklyBlockTypes.AMOUNT_FORMAT, BlocklyBlockTypes.TIME_FORMAT ->
+                        Set.of("VALUE", "input").contains(targetPort) ? targetPort : null;
+                case BlocklyBlockTypes.MATH_ARITHMETIC ->
+                        Set.of("A", "B", "leftValue", "rightValue").contains(targetPort) ? targetPort : null;
+                case BlocklyBlockTypes.MATH_MODULO ->
+                        Set.of("DIVIDEND", "DIVISOR", "leftValue", "rightValue").contains(targetPort) ? targetPort : null;
+                case BlocklyBlockTypes.LOGIC_COMPARE ->
+                        Set.of("A", "B", "leftValue", "rightValue", "left", "right").contains(targetPort)
+                                ? targetPort : null;
+                case BlocklyBlockTypes.LOGIC_OPERATION ->
+                        Set.of("A", "B", "leftCondition", "rightCondition").contains(targetPort) ? targetPort : null;
+                case BlocklyBlockTypes.LOGIC_NEGATE ->
+                        Set.of("BOOL", "input").contains(targetPort) ? targetPort : null;
+                case BlocklyBlockTypes.STRING_CONTAINS ->
+                        Set.of("TEXT", "SUBSTRING", "leftValue", "rightValue").contains(targetPort) ? targetPort : null;
+                case BlocklyBlockTypes.STRING_LIKE ->
+                        Set.of("TEXT", "PATTERN", "leftValue", "rightValue").contains(targetPort) ? targetPort : null;
+                default -> null;
+            };
+        }
+
+        private static Map<String, JsonNode> objectFields(JsonNode node) {
+            if (node == null || !node.isObject()) {
+                return Map.of();
+            }
+            Map<String, JsonNode> result = new LinkedHashMap<>();
+            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                result.put(field.getKey(), field.getValue());
+            }
+            return result;
+        }
+
+        private static String firstText(JsonNode node, String... fields) {
+            if (node == null || !node.isObject()) {
+                return null;
+            }
+            for (String field : fields) {
+                JsonNode value = node.get(field);
+                if (value != null && value.isTextual() && StringUtils.hasText(value.textValue())) {
+                    return value.textValue();
+                }
+            }
+            return null;
+        }
     }
 
     private BizException unsupportedOperator(String blockType) {

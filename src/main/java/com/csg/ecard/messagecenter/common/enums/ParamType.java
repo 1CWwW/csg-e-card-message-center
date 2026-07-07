@@ -11,7 +11,8 @@ public enum ParamType {
     NUMBER("NUMBER", "数字"),
     TIME("TIME", "时间"),
     STRING_ARRAY("STRING_ARRAY", "字符串数组"),
-    NUMBER_ARRAY("NUMBER_ARRAY", "数字数组");
+    NUMBER_ARRAY("NUMBER_ARRAY", "数字数组"),
+    OBJECT_ARRAY("OBJECT_ARRAY", "对象数组");
 
     private final String code;
     private final String desc;

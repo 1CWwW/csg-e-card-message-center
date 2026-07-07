@@ -29,6 +29,7 @@ public final class BlocklyBlockTypes {
     public static final String CONTROLS_IF = "controls_if";
     public static final String CONTROLS_FOR_EACH = "controls_forEach";
     public static final String LOOP_ITEM_VALUE = "loop_item_value";
+    public static final String LOOP_ITEM_FIELD = "loop_item_field";
 
     /**
      * 保存、预览和启用共同使用的受支持节点集合。
@@ -50,7 +51,8 @@ public final class BlocklyBlockTypes {
             STRING_LIKE,
             CONTROLS_IF,
             CONTROLS_FOR_EACH,
-            LOOP_ITEM_VALUE
+            LOOP_ITEM_VALUE,
+            LOOP_ITEM_FIELD
     );
 
     private BlocklyBlockTypes() {

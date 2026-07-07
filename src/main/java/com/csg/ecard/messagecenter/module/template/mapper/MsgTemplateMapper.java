@@ -132,6 +132,29 @@ public interface MsgTemplateMapper extends BaseMapper<MsgTemplate> {
                                                  @Param("unitId") String unitId);
 
     /**
+     * 查询场景和渠道类型下全部单位模板。
+     *
+     * @param sceneId     场景ID
+     * @param channelType 渠道类型
+     * @return 单位模板
+     */
+    @Select({
+            "SELECT DISTINCT t.id, t.template_name, t.scene_id, t.channel_type, t.blockly_json,",
+            "t.status, t.create_time, t.update_time",
+            "FROM msg_template t",
+            "JOIN msg_template_unit tu ON tu.template_id = t.id",
+            "WHERE t.scene_id = #{sceneId}",
+            "AND t.deleted = 0",
+            "AND t.status = 1",
+            "AND t.channel_type = #{channelType}",
+            "AND t.blockly_json IS NOT NULL",
+            "AND LENGTH(TRIM(t.blockly_json)) > 0",
+            "ORDER BY t.create_time ASC, t.id ASC"
+    })
+    List<MsgTemplate> selectEnabledUnitTemplatesByChannelType(@Param("sceneId") Long sceneId,
+                                                              @Param("channelType") String channelType);
+
+    /**
      * 查询未配置适用单位的默认可用模板。
      *
      * @param sceneId     场景ID

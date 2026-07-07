@@ -15,7 +15,7 @@ import com.csg.ecard.messagecenter.infrastructure.employee.EmployeeInfo;
 import com.csg.ecard.messagecenter.infrastructure.employee.EmployeeInfoProvider;
 import com.csg.ecard.messagecenter.module.channel.entity.MsgChannel;
 import com.csg.ecard.messagecenter.module.channel.mapper.MsgChannelMapper;
-import com.csg.ecard.messagecenter.module.channel.service.ChannelMatcher;
+import com.csg.ecard.messagecenter.module.channel.mapper.MsgChannelUnitMapper;
 import com.csg.ecard.messagecenter.module.push.dto.EmailFileDTO;
 import com.csg.ecard.messagecenter.module.push.dto.GroupPushDTO;
 import com.csg.ecard.messagecenter.module.push.dto.GroupPushItemDTO;
@@ -54,6 +54,7 @@ import com.csg.ecard.messagecenter.module.template.blockly.BlocklyValidationResu
 import com.csg.ecard.messagecenter.module.template.blockly.SceneParamValueValidator;
 import com.csg.ecard.messagecenter.module.template.entity.MsgTemplate;
 import com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateMapper;
+import com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateUnitMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -94,7 +95,8 @@ public class MessagePushServiceImpl implements MessagePushService {
     private final MsgTemplateMapper msgTemplateMapper;
     private final MsgRecordMapper msgRecordMapper;
     private final MsgChannelMapper msgChannelMapper;
-    private final ChannelMatcher channelMatcher;
+    private final MsgTemplateUnitMapper msgTemplateUnitMapper;
+    private final MsgChannelUnitMapper msgChannelUnitMapper;
     private final UnitPathResolver unitPathResolver;
     private final BlocklyJsonValidator blocklyJsonValidator;
     private final BlocklyRenderer blocklyRenderer;
@@ -122,7 +124,16 @@ public class MessagePushServiceImpl implements MessagePushService {
                     pushIdempotencyService.acquire(request.getBizId(), pcId);
             if (!acquired.acquired()) {
                 SyncPushVO existing = pushIdempotencyService.getResult(request.getBizId());
+                if (existing != null) {
+                    logDuplicateBizIdIgnored(request.getBizId(), existing.getPcId(), existing.getChannelResults().size());
+                }
                 return existing == null ? duplicateInProgress(acquired.msgId()) : existing;
+            }
+            SyncPushVO existing = findExistingResponseByBizId(request.getBizId());
+            if (existing != null) {
+                logDuplicateBizIdIgnored(request.getBizId(), existing.getPcId(), existing.getChannelResults().size());
+                pushIdempotencyService.saveResult(request.getBizId(), existing);
+                return existing;
             }
             registerRollbackRelease(request.getBizId());
             pcId = acquired.msgId();
@@ -204,8 +215,17 @@ public class MessagePushServiceImpl implements MessagePushService {
                 pushIdempotencyService.acquire(normalizedBizId, pcId);
         if (!acquired.acquired()) {
             SyncPushVO existing = pushIdempotencyService.getResult(normalizedBizId);
+            if (existing != null) {
+                logDuplicateBizIdIgnored(normalizedBizId, existing.getPcId(), existing.getChannelResults().size());
+            }
             SyncPushVO response = existing == null ? duplicateInProgress(acquired.msgId()) : existing;
             return new BatchAcquireResult(false, acquired.msgId(), response);
+        }
+        SyncPushVO existing = findExistingResponseByBizId(normalizedBizId);
+        if (existing != null) {
+            logDuplicateBizIdIgnored(normalizedBizId, existing.getPcId(), existing.getChannelResults().size());
+            pushIdempotencyService.saveResult(normalizedBizId, existing);
+            return new BatchAcquireResult(false, existing.getPcId(), existing);
         }
         registerRollbackRelease(normalizedBizId);
         return new BatchAcquireResult(true, acquired.msgId(), null);
@@ -424,6 +444,101 @@ public class MessagePushServiceImpl implements MessagePushService {
         }
     }
 
+    private void logDuplicateBizIdIgnored(String bizId, String pcId, int recordCount) {
+        log.warn("业务ID已存在，本次请求不再执行发送. bizId={}, pcId={}, recordCount={}",
+                bizId, pcId, recordCount);
+    }
+
+    private SyncPushVO findExistingResponseByBizId(String bizId) {
+        String normalizedBizId = trimToNull(bizId);
+        if (!StringUtils.hasText(normalizedBizId)) {
+            return null;
+        }
+        List<MsgRecord> records = msgRecordMapper.selectList(new LambdaQueryWrapper<MsgRecord>()
+                .eq(MsgRecord::getBizId, normalizedBizId)
+                .orderByAsc(MsgRecord::getCreateTime, MsgRecord::getId));
+        if (records.isEmpty()) {
+            return null;
+        }
+        Map<Long, MsgTemplate> templateMap = loadTemplateMap(records);
+        Map<Long, MsgChannel> channelMap = loadChannelMap(records);
+        List<ChannelResultVO> results = records.stream()
+                .map(record -> toChannelResult(record, templateMap.get(record.getTemplateId()),
+                        channelMap.get(record.getChannelId())))
+                .toList();
+        String pcId = records.get(0).getPcId();
+        SyncPushVO response = new SyncPushVO();
+        response.setPcId(pcId);
+        response.setMsgId(pcId);
+        response.getChannelResults().addAll(results);
+        response.setStatus(summarize(results));
+        return response;
+    }
+
+    private Map<Long, MsgTemplate> loadTemplateMap(List<MsgRecord> records) {
+        Set<Long> ids = records.stream()
+                .map(MsgRecord::getTemplateId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return msgTemplateMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(MsgTemplate::getId, Function.identity()));
+    }
+
+    private Map<Long, MsgChannel> loadChannelMap(List<MsgRecord> records) {
+        Set<Long> ids = records.stream()
+                .map(MsgRecord::getChannelId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return msgChannelMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(MsgChannel::getId, Function.identity()));
+    }
+
+    private ChannelResultVO toChannelResult(MsgRecord record, MsgTemplate template, MsgChannel channel) {
+        ChannelResultVO result = new ChannelResultVO();
+        result.setId(record.getId());
+        result.setPcId(record.getPcId());
+        result.setUserId(record.getUserId());
+        result.setMsgId(record.getMsgId());
+        result.setMsgType(record.getMsgType());
+        result.setChannelType(resolveRecordChannelType(record, template, channel));
+        result.setChannelName(channel == null ? null : channel.getChannelName());
+        result.setTemplateName(template == null ? null : template.getTemplateName());
+        result.setContent(record.getMessageContent());
+        result.setMessageContent(record.getMessageContent());
+        result.setScheduleTime(record.getScheduleTime());
+        result.setReceiveUserId(record.getReceiveUserId());
+        result.setReceiveCorpId(record.getReceiveCorpId());
+        result.setReceivePhone(record.getReceivePhone());
+        result.setResultCode(record.getSendStatus());
+        result.setResultMsg(record.getErrorMsg());
+        result.setStatus(SendStatus.valueOf(record.getSendStatus()));
+        result.setErrorMsg(record.getErrorMsg());
+        result.setSendTime(record.getSendTime());
+        return result;
+    }
+
+    private String resolveRecordChannelType(MsgRecord record, MsgTemplate template, MsgChannel channel) {
+        if (template != null && StringUtils.hasText(template.getChannelType())) {
+            return template.getChannelType();
+        }
+        if (channel != null && StringUtils.hasText(channel.getChannelType())) {
+            return channel.getChannelType();
+        }
+        return switch (record.getMsgType()) {
+            case "sms" -> ChannelType.SMS.getCode();
+            case "email" -> ChannelType.EMAIL.getCode();
+            case "elink" -> ChannelType.ELINK.getCode();
+            case "sym" -> ChannelType.IN_APP.getCode();
+            default -> null;
+        };
+    }
+
     @Override
     public AsyncPushVO pushAsync(SyncPushDTO request) {
         normalize(request);
@@ -434,7 +549,18 @@ public class MessagePushServiceImpl implements MessagePushService {
             PushIdempotencyService.AcquireResult acquired =
                     pushIdempotencyService.acquire(request.getBizId(), pcId);
             if (!acquired.acquired()) {
+                SyncPushVO existing = findExistingResponseByBizId(request.getBizId());
+                if (existing != null) {
+                    logDuplicateBizIdIgnored(request.getBizId(), existing.getPcId(), existing.getChannelResults().size());
+                    return accepted(existing.getPcId());
+                }
                 return accepted(acquired.msgId());
+            }
+            SyncPushVO existing = findExistingResponseByBizId(request.getBizId());
+            if (existing != null) {
+                logDuplicateBizIdIgnored(request.getBizId(), existing.getPcId(), existing.getChannelResults().size());
+                pushIdempotencyService.release(request.getBizId());
+                return accepted(existing.getPcId());
             }
             pcId = acquired.msgId();
         }
@@ -503,25 +629,22 @@ public class MessagePushServiceImpl implements MessagePushService {
                 .collect(Collectors.toMap(MsgSceneParam::getId, item -> item));
 
         List<String> unitPath = resolveUnitPath(request.getUserOrgId());
-        List<MsgTemplate> templates = matchTemplates(scene.getId(), unitPath);
+        List<TemplateChannelMatch> templateMatches = matchTemplateChannels(scene.getId(), unitPath);
         if (pendingTemplateIds != null && !pendingTemplateIds.isEmpty()) {
             Set<Long> pendingIds = Set.copyOf(pendingTemplateIds);
-            templates = templates.stream()
-                    .filter(template -> pendingIds.contains(template.getId()))
+            templateMatches = templateMatches.stream()
+                    .filter(match -> pendingIds.contains(match.template().getId()))
                     .toList();
         }
-        if (templates.isEmpty()) {
+        if (templateMatches.isEmpty()) {
             throw MessagePushException.badRequest("当前场景下，接收人所属单位、上级单位及默认配置中均未找到可用模板");
         }
 
         Map<Long, Optional<MsgChannel>> matchedChannels = new LinkedHashMap<>();
-        for (MsgTemplate template : templates) {
-            matchedChannels.put(template.getId(),
-                    channelMatcher.match(template.getChannelType(), unitPath));
-        }
-        if (matchedChannels.values().stream().allMatch(Optional::isEmpty)) {
-            throw MessagePushException.badRequest(
-                    "模板已匹配，但接收人所属单位、上级单位及默认配置中均未找到对应类型的启用渠道");
+        List<MsgTemplate> templates = new ArrayList<>();
+        for (TemplateChannelMatch match : templateMatches) {
+            templates.add(match.template());
+            matchedChannels.put(match.template().getId(), Optional.of(match.channel()));
         }
 
         SyncPushVO response = new SyncPushVO();
@@ -554,15 +677,169 @@ public class MessagePushServiceImpl implements MessagePushService {
         return result;
     }
 
+    private List<TemplateChannelMatch> matchTemplateChannels(Long sceneId, List<String> unitPath) {
+        List<TemplateChannelMatch> result = new ArrayList<>();
+        boolean templateExists = false;
+        for (ChannelType channelType : ChannelType.values()) {
+            List<MsgTemplate> templates = matchTemplatesByChannelType(sceneId, channelType.getCode(), unitPath);
+            if (templates.isEmpty()) {
+                continue;
+            }
+            templateExists = true;
+            Optional<ChannelMatch> channelMatch = selectChannel(channelType.getCode(), unitPath);
+            if (channelMatch.isEmpty()) {
+                continue;
+            }
+            MsgChannel channel = channelMatch.get().channel();
+            Optional<MsgTemplate> template = selectPreferredTemplate(templates, channel, unitPath,
+                    channelMatch.get().unitTemplateAllowed());
+            if (template.isEmpty()) {
+                continue;
+            }
+            boolean defaultTemplate = isDefaultTemplate(template.get());
+            log.info("Message template matched. sceneId={}, channelType={}, templateId={}, templateName={}, channelId={}, channelName={}, unitPath={}, channelUnitMatched={}, unitTemplateAllowed={}, defaultTemplate={}",
+                    sceneId, channelType.getCode(), template.get().getId(), template.get().getTemplateName(),
+                    channel.getId(), channel.getChannelName(), safeUnitPath(unitPath), channelMatch.get().unitMatched(),
+                    channelMatch.get().unitTemplateAllowed(), defaultTemplate);
+            result.add(new TemplateChannelMatch(template.get(), channel));
+        }
+        if (result.isEmpty() && templateExists) {
+            throw MessagePushException.badRequest(
+                    "模板已匹配，但接收人所属单位、上级单位及默认配置中均未找到对应类型的启用渠道");
+        }
+        return result;
+    }
+
+    private Optional<ChannelMatch> selectChannel(String channelType, List<String> unitPath) {
+        for (String unitId : safeUnitPath(unitPath)) {
+            List<MsgChannel> candidates = msgChannelMapper.selectEnabledCandidates(channelType, unitId);
+            if (candidates != null && !candidates.isEmpty()) {
+                return Optional.of(new ChannelMatch(candidates.get(0), true, true));
+            }
+        }
+        List<MsgChannel> defaults = msgChannelMapper.selectEnabledDefaultCandidates(channelType);
+        if (defaults != null && !defaults.isEmpty()) {
+            return Optional.of(new ChannelMatch(defaults.get(0), false, true));
+        }
+        List<MsgChannel> anyEnabledChannels = msgChannelMapper.selectEnabledAnyCandidates(channelType);
+        return anyEnabledChannels == null || anyEnabledChannels.isEmpty()
+                ? Optional.empty()
+                : Optional.of(new ChannelMatch(anyEnabledChannels.get(0), false, false));
+    }
+
     private List<MsgTemplate> matchTemplatesByChannelType(Long sceneId, String channelType, List<String> unitPath) {
+        List<MsgTemplate> result = new ArrayList<>();
+        Set<Long> templateIds = new java.util.LinkedHashSet<>();
         for (String unitId : safeUnitPath(unitPath)) {
             List<MsgTemplate> templates = msgTemplateMapper.selectEnabledUnitTemplates(sceneId, channelType, unitId);
             if (templates != null && !templates.isEmpty()) {
-                return templates;
+                templates.stream()
+                        .filter(template -> templateIds.add(template.getId()))
+                        .forEach(result::add);
             }
         }
         List<MsgTemplate> defaults = msgTemplateMapper.selectEnabledDefaultTemplates(sceneId, channelType);
-        return defaults == null ? List.of() : defaults;
+        if (defaults != null && !defaults.isEmpty()) {
+            defaults.stream()
+                    .filter(template -> templateIds.add(template.getId()))
+                    .forEach(result::add);
+        }
+        return result;
+    }
+
+    private Optional<MsgTemplate> selectPreferredTemplate(List<MsgTemplate> templates,
+                                                          MsgChannel channel,
+                                                          List<String> unitPath,
+                                                          boolean unitTemplateAllowed) {
+        if (!unitTemplateAllowed) {
+            return selectDefaultTemplate(templates);
+        }
+        return templates.stream()
+                .filter(template -> !isDefaultTemplate(template))
+                .filter(template -> templateMatchesUnitPath(template, unitPath))
+                .filter(template -> templateAndChannelOverlap(template, channel, unitPath))
+                .min(java.util.Comparator.<MsgTemplate>comparingInt(template -> templatePathRank(template, unitPath))
+                        .thenComparingInt(this::templateUnitCount)
+                        .thenComparing(MsgTemplate::getCreateTime)
+                        .thenComparing(MsgTemplate::getId))
+                .or(() -> selectDefaultTemplate(templates));
+    }
+
+    private Optional<MsgTemplate> selectDefaultTemplate(List<MsgTemplate> templates) {
+        return templates.stream()
+                .filter(this::isDefaultTemplate)
+                .findFirst();
+    }
+
+    private boolean templateMatchesUnitPath(MsgTemplate template, List<String> unitPath) {
+        Set<String> path = safeUnitPath(unitPath).stream().collect(Collectors.toSet());
+        if (path.isEmpty()) {
+            return false;
+        }
+        List<String> unitIds = msgTemplateUnitMapper.selectUnitIdsByTemplateId(template.getId());
+        return unitIds != null && unitIds.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .anyMatch(path::contains);
+    }
+
+    private int templatePathRank(MsgTemplate template, List<String> unitPath) {
+        List<String> path = safeUnitPath(unitPath);
+        List<String> unitIds = msgTemplateUnitMapper.selectUnitIdsByTemplateId(template.getId());
+        if (unitIds == null || unitIds.isEmpty()) {
+            return Integer.MAX_VALUE;
+        }
+        Set<String> templateUnits = unitIds.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .collect(Collectors.toSet());
+        for (int i = 0; i < path.size(); i++) {
+            if (templateUnits.contains(path.get(i))) {
+                return i;
+            }
+        }
+        return Integer.MAX_VALUE;
+    }
+
+    private int templateUnitCount(MsgTemplate template) {
+        List<String> unitIds = msgTemplateUnitMapper.selectUnitIdsByTemplateId(template.getId());
+        return unitIds == null ? 0 : unitIds.size();
+    }
+
+    private boolean isDefaultTemplate(MsgTemplate template) {
+        List<String> unitIds = msgTemplateUnitMapper.selectUnitIdsByTemplateId(template.getId());
+        if (unitIds == null || unitIds.isEmpty()) {
+            return true;
+        }
+        List<MsgTemplate> defaults = msgTemplateMapper.selectEnabledDefaultTemplates(
+                template.getSceneId(), template.getChannelType());
+        return defaults != null && defaults.stream()
+                .anyMatch(defaultTemplate -> Objects.equals(defaultTemplate.getId(), template.getId()));
+    }
+
+    private boolean templateAndChannelOverlap(MsgTemplate template, MsgChannel channel, List<String> unitPath) {
+        List<String> templateUnits = msgTemplateUnitMapper.selectUnitIdsByTemplateId(template.getId());
+        if (templateUnits == null || templateUnits.isEmpty()) {
+            return false;
+        }
+        List<String> channelUnits = msgChannelUnitMapper.selectUnitIdsByChannelId(channel.getId());
+        if (channelUnits == null || channelUnits.isEmpty()) {
+            return true;
+        }
+        Set<String> channelUnitSet = channelUnits.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .collect(Collectors.toSet());
+        Set<String> templateUnitSet = templateUnits.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .collect(Collectors.toSet());
+        if (templateUnitSet.stream().anyMatch(channelUnitSet::contains)) {
+            return true;
+        }
+        Set<String> path = safeUnitPath(unitPath).stream().collect(Collectors.toSet());
+        return templateUnitSet.stream().anyMatch(path::contains)
+                && channelUnitSet.stream().anyMatch(path::contains);
     }
 
     private List<String> resolveUnitPath(String userOrgId) {
@@ -670,6 +947,7 @@ public class MessagePushServiceImpl implements MessagePushService {
                 result.setResultCode(SendStatus.SUCCESS.name());
                 saveOrUpdateRecord(pcId, messageId, request, scene, template, channel,
                         serializedSceneParams, result, callType, null);
+                logChannelSendCompleted(result, template, channel, sendResult, false);
                 return new TemplateExecutionResult(result, false);
             }
             result.setStatus(SendStatus.FAILED);
@@ -679,6 +957,7 @@ public class MessagePushServiceImpl implements MessagePushService {
             if (shouldRetry(asyncMode, retryCount, sendResult.retryable())) {
                 saveOrUpdateRecord(pcId, messageId, request, scene, template, channel,
                         serializedSceneParams, result, callType, null);
+                logChannelSendCompleted(result, template, channel, sendResult, true);
                 return new TemplateExecutionResult(result, true);
             }
         } catch (RuntimeException ex) {
@@ -694,16 +973,55 @@ public class MessagePushServiceImpl implements MessagePushService {
                         pcId, messageId, template.getId(), retryCount, request.getPriority(), ex.getMessage());
                 saveOrUpdateRecord(pcId, messageId, request, scene, template, channel,
                         serializedSceneParams, result, callType, ex);
+                logChannelSendCompleted(result, template, channel, ChannelSendResult.failed(messageOf(ex)), true);
                 return new TemplateExecutionResult(result, true);
             }
             saveOrUpdateRecord(pcId, messageId, request, scene, template, channel,
                     serializedSceneParams, result, callType, ex);
+            logChannelSendCompleted(result, template, channel, ChannelSendResult.failedNonRetryable(messageOf(ex)), false);
             return new TemplateExecutionResult(result, false);
         }
 
         saveOrUpdateRecord(pcId, messageId, request, scene, template, channel,
                 serializedSceneParams, result, callType, null);
+        logChannelSendCompleted(result, template, channel, ChannelSendResult.failedNonRetryable(result.getErrorMsg()), false);
         return new TemplateExecutionResult(result, false);
+    }
+
+    private void logChannelSendCompleted(ChannelResultVO result,
+                                         MsgTemplate template,
+                                         MsgChannel channel,
+                                         ChannelSendResult sendResult,
+                                         boolean retryPlanned) {
+        SendStatus status = result.getStatus();
+        String errorMsg = safeLogText(sendResult.errorMsg());
+        log.info("Message push channel send completed. pcId={}, msgId={}, recordId={}, channelType={}, channelId={}, channelName={}, templateId={}, status={}, success={}, retryable={}, retryPlanned={}, errorMsg={}",
+                result.getPcId(),
+                result.getMsgId(),
+                result.getId(),
+                template == null ? null : template.getChannelType(),
+                channel == null ? null : channel.getId(),
+                channel == null ? null : channel.getChannelName(),
+                template == null ? null : template.getId(),
+                status == null ? null : status.name(),
+                sendResult.success(),
+                sendResult.retryable(),
+                retryPlanned,
+                errorMsg);
+    }
+
+    private void logBatchSendCompleted(String channelType, List<MsgRecord> records, ChannelSendResult sendResult) {
+        if (records.isEmpty()) {
+            return;
+        }
+        MsgRecord first = records.get(0);
+        log.info("Message push batch send completed. pcId={}, channelType={}, batchSize={}, success={}, retryable={}, errorMsg={}",
+                first.getPcId(),
+                channelType,
+                records.size(),
+                sendResult.success(),
+                sendResult.retryable(),
+                safeLogText(sendResult.errorMsg()));
     }
 
     private void dispatchPendingInAppBatch(String pcId) {
@@ -757,6 +1075,7 @@ public class MessagePushServiceImpl implements MessagePushService {
             sendResult = ChannelSendResult.failedNonRetryable(messageOf(ex));
             technicalError = ex;
         }
+        logBatchSendCompleted(ChannelType.IN_APP.getCode(), validRecords, sendResult);
         for (MsgRecord record : validRecords) {
             if (sendResult.success()) {
                 markRecordSuccess(record, completedAt);
@@ -816,6 +1135,7 @@ public class MessagePushServiceImpl implements MessagePushService {
             sendResult = ChannelSendResult.failedNonRetryable(messageOf(ex));
             technicalError = ex;
         }
+        logBatchSendCompleted(ChannelType.EMAIL.getCode(), validRecords, sendResult);
         for (MsgRecord record : validRecords) {
             if (sendResult.success()) {
                 markRecordSuccess(record, completedAt);
@@ -977,7 +1297,7 @@ public class MessagePushServiceImpl implements MessagePushService {
     }
 
     private void fillResultSnapshot(ChannelResultVO result, SyncPushDTO request, MessageSendInfo sendInfo) {
-        result.setUserId(sendInfo.getSendUserId());
+        result.setUserId(sendInfo.getReceiveUserId());
         result.setMsgType(sendInfo.getMsgType());
         result.setContent(sendInfo.getContent());
         result.setMessageContent(sendInfo.getContent());
@@ -1376,6 +1696,14 @@ public class MessagePushServiceImpl implements MessagePushService {
         return StringUtils.hasText(ex.getMessage()) ? ex.getMessage() : "渠道发送失败";
     }
 
+    private String safeLogText(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        String compact = value.replaceAll("[\\r\\n\\t]+", " ").trim();
+        return compact.length() <= 200 ? compact : compact.substring(0, 200);
+    }
+
     private Throwable technicalCause(RuntimeException ex) {
         return ex instanceof BizException || ex instanceof MessagePushException ? null : ex;
     }
@@ -1397,6 +1725,12 @@ public class MessagePushServiceImpl implements MessagePushService {
     }
 
     private record TemplateExecutionResult(ChannelResultVO channelResult, boolean retryRequired) {
+    }
+
+    private record TemplateChannelMatch(MsgTemplate template, MsgChannel channel) {
+    }
+
+    private record ChannelMatch(MsgChannel channel, boolean unitMatched, boolean unitTemplateAllowed) {
     }
 
     private record CoreExecutionResult(SyncPushVO response, List<Long> retryTemplateIds) {

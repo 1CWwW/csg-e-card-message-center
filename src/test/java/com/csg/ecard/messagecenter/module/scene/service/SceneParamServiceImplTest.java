@@ -128,6 +128,34 @@ class SceneParamServiceImplTest {
     }
 
     @Test
+    void shouldAllowObjectArrayParamCreateAndUpdate() {
+        when(msgSceneMapper.selectById(1L)).thenReturn(scene(1L));
+        when(msgSceneParamMapper.selectMaxSortOrder(1L)).thenReturn(0);
+        when(msgSceneParamMapper.selectCount(any())).thenReturn(0L);
+        when(msgSceneParamMapper.insert(any(MsgSceneParam.class))).thenReturn(1);
+        SceneParamCreateDTO createRequest = createRequest("wallets");
+        createRequest.setParamType(ParamType.OBJECT_ARRAY.getCode());
+
+        SceneParamVO created = sceneParamService.create(1L, createRequest);
+
+        assertThat(created.getParamType()).isEqualTo(ParamType.OBJECT_ARRAY.getCode());
+        assertThat(created.getParamTypeDesc()).isEqualTo("对象数组");
+
+        MsgSceneParam existed = param(1L, 1L, "wallets");
+        existed.setParamType(ParamType.OBJECT_ARRAY.getCode());
+        when(msgSceneParamMapper.selectById(1L)).thenReturn(existed);
+        when(sceneParamUsageChecker.checkUsage(existed)).thenReturn(SceneParamUsageVO.unused());
+        when(msgSceneParamMapper.updateById(any(MsgSceneParam.class))).thenReturn(1);
+        SceneParamUpdateDTO updateRequest = updateRequest("wallets");
+        updateRequest.setParamType(ParamType.OBJECT_ARRAY.getCode());
+
+        SceneParamVO updated = sceneParamService.update(1L, 1L, updateRequest);
+
+        assertThat(updated.getParamType()).isEqualTo(ParamType.OBJECT_ARRAY.getCode());
+        assertThat(updated.getParamTypeDesc()).isEqualTo("对象数组");
+    }
+
+    @Test
     void shouldRejectInvalidIsRequired() {
         when(msgSceneMapper.selectById(1L)).thenReturn(scene(1L));
         SceneParamCreateDTO request = createRequest("merchantName");

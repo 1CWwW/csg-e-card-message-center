@@ -6,6 +6,7 @@ import com.csg.ecard.messagecenter.module.push.sender.BatchChannelSender;
 import com.csg.ecard.messagecenter.module.push.sender.ChannelSendRequest;
 import com.csg.ecard.messagecenter.module.push.sender.ChannelSendResult;
 import com.csg.ecard.messagecenter.module.push.sender.MessageSendInfo;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -24,6 +25,7 @@ import java.util.Objects;
  * 站内信发送适配器。
  */
 @Component
+@ConditionalOnProperty(prefix = "message.sender", name = "mode", havingValue = "real", matchIfMissing = true)
 public class InAppChannelSender implements BatchChannelSender {
 
     private final MessageSendProperties properties;

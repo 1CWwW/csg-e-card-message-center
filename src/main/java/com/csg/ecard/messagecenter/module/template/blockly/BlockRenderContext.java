@@ -71,7 +71,8 @@ public class BlockRenderContext {
             case STRING, TIME -> formatted;
             case STRING_ARRAY -> toStringArray(rawValue);
             case NUMBER_ARRAY -> toNumberArray(rawValue);
-            case BOOLEAN, STATEMENT -> throw new BizException(ErrorCode.PARAM_ERROR,
+            case OBJECT_ARRAY -> toObjectArray(rawValue);
+            case BOOLEAN, OBJECT, STATEMENT -> throw new BizException(ErrorCode.PARAM_ERROR,
                     "场景参数类型不支持：" + param.getParamType());
         };
         return new BlocklyRenderValue(type, value);
@@ -136,6 +137,11 @@ public class BlockRenderContext {
     }
 
     /** 进入循环上下文，设置当前循环元素值和类型。 */
+    private List<JsonNode> toObjectArray(JsonNode rawValue) {
+        return java.util.stream.StreamSupport.stream(rawValue.spliterator(), false)
+                .toList();
+    }
+
     public void pushLoopContext(BlocklyValueType itemType, Object itemValue) {
         loopStack.push(new LoopContext(itemType, itemValue));
     }
