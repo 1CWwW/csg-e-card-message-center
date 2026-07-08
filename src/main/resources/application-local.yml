@@ -11,6 +11,19 @@ message:
         IN_APP: SUCCESS
 
 app:
+  organization:
+    mode: preset
+    preset:
+      name-by-unit:
+        UNIT_100000: 南方电网
+        UNIT_110000: 广东电网
+        UNIT_110100: 广州供电局
+        UNIT_110101: 越秀供电局
+        UNIT_110102: 天河供电局
+        UNIT_110200: 深圳供电局
+        UNIT_110201: 南山供电局
+        UNIT_120000: 广西电网
+        UNIT_120100: 南宁供电局
   local-unit-path:
     max-depth: 20
     parent-by-unit:

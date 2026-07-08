@@ -41,6 +41,13 @@ xxl:
     accessToken: ${XXL_JOB_ACCESS_TOKEN:}
 
 app:
+  organization:
+    mode: ${APP_ORGANIZATION_MODE:remote}
+    remote:
+      base-url: ${ORG_SERVICE_BASE_URL:public.jadp.service.url}
+      context-path: ${ORG_SERVICE_CONTEXT_PATH:public-jadp-api}
+      connect-timeout: ${ORG_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${ORG_SERVICE_READ_TIMEOUT:5s}
   message-send:
     sms:
       enabled: ${MESSAGE_SEND_SMS_ENABLED:false}

@@ -352,6 +352,28 @@ class MsgTemplateServiceImplTest {
     }
 
     @Test
+    void shouldRenderGraphAmountFormatWithPrefixedParamInputAsTextSegment() {
+        ObjectNode prefix = textJoinBlock("本园区就餐消费成功，共消费了");
+        prefix.put("id", "prefix");
+        ObjectNode amountParam = paramBlock(1L, "left", ParamType.NUMBER);
+        amountParam.put("id", "amount-param");
+        ObjectNode amount = linkedDecimals("amount", BlocklyBlockTypes.AMOUNT_FORMAT, 2);
+        ObjectNode suffix = textJoinBlock("元");
+        suffix.put("id", "suffix");
+        ObjectNode workspace = graphWorkspace("suffix", prefix, amountParam, amount, suffix);
+        putLink(workspace, "prefix", "amount-param", "input");
+        putLink(workspace, "amount-param", "amount", "input");
+        putLink(workspace, "amount", "suffix", "input");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("left", objectMapper.valueToTree(55))).renderedContent())
+                .isEqualTo("本园区就餐消费成功，共消费了55.00元");
+    }
+
+    @Test
     void shouldRenderGraphControlsIfByBranchesAndComparePorts() {
         ObjectNode amount = paramBlock(1L, "left", ParamType.NUMBER);
         amount.put("id", "amount");

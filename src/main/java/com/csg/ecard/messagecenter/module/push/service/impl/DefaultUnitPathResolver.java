@@ -1,6 +1,6 @@
 package com.csg.ecard.messagecenter.module.push.service.impl;
 
-import com.csg.ecard.messagecenter.infrastructure.employee.EmployeeInfoProvider;
+import com.csg.ecard.messagecenter.infrastructure.organization.OrganizationProvider;
 import com.csg.ecard.messagecenter.module.push.service.UnitPathResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -14,10 +14,10 @@ import java.util.List;
 @RequiredArgsConstructor
 public class DefaultUnitPathResolver implements UnitPathResolver {
 
-    private final EmployeeInfoProvider employeeInfoProvider;
+    private final OrganizationProvider organizationProvider;
 
     @Override
     public List<String> resolve(String userOrgId) {
-        return employeeInfoProvider.getUnitPath(userOrgId);
+        return organizationProvider.resolveUnitPath(userOrgId);
     }
 }

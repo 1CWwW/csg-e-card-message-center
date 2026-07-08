@@ -839,10 +839,11 @@ public class BlocklyRenderer {
                                                  GraphWorkspace graph,
                                                  BlockRenderContext context,
                                                  Set<String> visiting) {
-        BigDecimal number = requireGraphNumber(renderGraphInput(blockId, graph, context, visiting,
-                "VALUE", "input"), BlocklyBlockTypes.AMOUNT_FORMAT);
+        GraphInputValue input = renderGraphFormatInput(blockId, graph, context, visiting,
+                "VALUE", "input");
+        BigDecimal number = requireGraphNumber(input.value(), BlocklyBlockTypes.AMOUNT_FORMAT);
         return new BlocklyRenderValue(BlocklyValueType.STRING,
-                number.setScale(decimalPlaces(block), RoundingMode.HALF_UP).toPlainString());
+                input.prefix() + number.setScale(decimalPlaces(block), RoundingMode.HALF_UP).toPlainString());
     }
 
     private BlocklyRenderValue renderGraphTime(String blockId,
@@ -850,12 +851,13 @@ public class BlocklyRenderer {
                                                GraphWorkspace graph,
                                                BlockRenderContext context,
                                                Set<String> visiting) {
-        String value = requireValue(renderGraphInput(blockId, graph, context, visiting,
-                "VALUE", "input"), BlocklyValueType.TIME,
+        GraphInputValue input = renderGraphFormatInput(blockId, graph, context, visiting,
+                "VALUE", "input");
+        String value = requireValue(input.value(), BlocklyValueType.TIME,
                 "time_format 的输入必须为时间").toString();
         try {
             return new BlocklyRenderValue(BlocklyValueType.STRING,
-                    LocalDateTime.parse(value, TIME_FORMATTER).format(TIME_FORMATTER));
+                    input.prefix() + LocalDateTime.parse(value, TIME_FORMATTER).format(TIME_FORMATTER));
         } catch (DateTimeParseException ex) {
             throw new BizException(ErrorCode.RENDER_FAILED,
                     "time_format 的输入必须符合 yyyy-MM-dd HH:mm:ss");
@@ -1076,6 +1078,61 @@ public class BlocklyRenderer {
                     block.path("type").asText() + " 缺少输入 " + ports[0]);
         }
         return renderGraphValue(sourceId, graph, context, visiting);
+    }
+
+    private GraphInputValue renderGraphFormatInput(String blockId,
+                                                   GraphWorkspace graph,
+                                                   BlockRenderContext context,
+                                                   Set<String> visiting,
+                                                   String valuePort,
+                                                   String inputPort) {
+        String valueSourceId = graph.inputSourceId(blockId, valuePort);
+        if (StringUtils.hasText(valueSourceId)) {
+            return new GraphInputValue("", renderGraphRawValue(valueSourceId, graph, context, visiting));
+        }
+        String inputSourceId = graph.inputSourceId(blockId, inputPort);
+        if (StringUtils.hasText(inputSourceId)) {
+            return new GraphInputValue(renderGraphPrefix(inputSourceId, graph, context, visiting),
+                    renderGraphRawValue(inputSourceId, graph, context, visiting));
+        }
+        JsonNode block = graph.requireBlock(blockId);
+        for (String port : new String[]{valuePort, inputPort}) {
+            JsonNode child = activeBlock(block.path("inputs").get(port));
+            if (child != null) {
+                return new GraphInputValue("", renderNode(child, context, false));
+            }
+        }
+        throw new BizException(ErrorCode.RENDER_FAILED,
+                block.path("type").asText() + " 缺少输入 " + valuePort);
+    }
+
+    private String renderGraphPrefix(String blockId,
+                                     GraphWorkspace graph,
+                                     BlockRenderContext context,
+                                     Set<String> visiting) {
+        String inputSourceId = graph.inputSourceId(blockId, "input");
+        if (!StringUtils.hasText(inputSourceId)) {
+            return "";
+        }
+        JsonNode inputBlock = graph.requireBlock(inputSourceId);
+        return requireText(renderGraphValue(inputSourceId, graph, context, visiting),
+                inputBlock.path("type").asText());
+    }
+
+    private BlocklyRenderValue renderGraphRawValue(String blockId,
+                                                   GraphWorkspace graph,
+                                                   BlockRenderContext context,
+                                                   Set<String> visiting) {
+        JsonNode block = graph.requireBlock(blockId);
+        String blockType = block.path("type").asText();
+        return switch (blockType) {
+            case BlocklyBlockTypes.TEXT -> renderText(block);
+            case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
+                    context.resolveParam(block);
+            case BlocklyBlockTypes.LOOP_ITEM_VALUE -> renderLoopItemValue(block, context);
+            case BlocklyBlockTypes.LOOP_ITEM_FIELD -> renderLoopItemField(block, context);
+            default -> renderGraphValue(blockId, graph, context, visiting);
+        };
     }
 
     private BlocklyRenderValue renderGraphMathInput(String blockId,
@@ -1517,6 +1574,9 @@ public class BlocklyRenderer {
     }
 
     private record ControlsIfState(int elseIfCount, boolean hasElse) {
+    }
+
+    private record GraphInputValue(String prefix, BlocklyRenderValue value) {
     }
 
     private static final class GraphWorkspace {
