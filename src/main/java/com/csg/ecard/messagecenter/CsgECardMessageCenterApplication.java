@@ -4,6 +4,7 @@ import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.tsf.annotation.EnableTsf;
 
 /**
  * 电子卡消息中心后端启动入口。
@@ -11,6 +12,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * 当前工程为基础框架层，开启 Spring Boot 自动配置、定时能力以及 MyBatis Mapper 扫描。
  */
 @EnableScheduling
+@EnableTsf
 @MapperScan("com.csg.ecard.messagecenter.**.mapper")
 @SpringBootApplication
 public class CsgECardMessageCenterApplication {

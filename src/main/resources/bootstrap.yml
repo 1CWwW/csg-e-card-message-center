@@ -1,0 +1,15 @@
+spring:
+  cloud:
+    consul:
+      enabled: ${CONSUL_ENABLED:false}
+      host: ${CONSUL_HOST:127.0.0.1}
+      port: ${CONSUL_PORT:8500}
+      config:
+        enabled: ${CONSUL_CONFIG_ENABLED:false}
+      discovery:
+        enabled: ${CONSUL_DISCOVERY_ENABLED:false}
+        register: ${CONSUL_REGISTER:false}
+
+feign:
+  circuitbreaker:
+    enabled: ${FEIGN_CIRCUITBREAKER_ENABLED:true}
