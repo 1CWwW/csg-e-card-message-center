@@ -427,6 +427,56 @@ class MsgTemplateServiceImplTest {
     }
 
     @Test
+    void shouldRenderGraphForEachWithPrefixInputAndCollectionLink() {
+        ObjectNode prefixText = linkedText("prefix-text", "其中");
+        ObjectNode wallets = paramBlock(11L, "wallets", ParamType.OBJECT_ARRAY);
+        wallets.put("id", "wallets");
+        ObjectNode forEach = objectMapper.createObjectNode();
+        forEach.put("id", "loop");
+        forEach.put("type", BlocklyBlockTypes.CONTROLS_FOR_EACH);
+        ObjectNode name = loopItemField("name", ParamType.STRING);
+        name.put("id", "name");
+        ObjectNode paidPrefix = linkedText("paid-prefix", "支付");
+        ObjectNode paid = loopItemField("paid", ParamType.NUMBER);
+        paid.put("id", "paid");
+        ObjectNode middle = linkedText("middle", "元，余额");
+        ObjectNode balance = loopItemField("balance", ParamType.NUMBER);
+        balance.put("id", "balance");
+        ObjectNode suffix = linkedText("suffix", "元");
+
+        ObjectNode workspace = graphWorkspace("prefix-text", prefixText, forEach, wallets,
+                name, paidPrefix, paid, middle, balance, suffix);
+        workspace.putObject("templateLoops")
+                .putObject("loop")
+                .put("bodyBlockId", "suffix");
+        putLink(workspace, "prefix-text", "loop", "input");
+        putLink(workspace, "wallets", "loop", "collection");
+        putLink(workspace, "name", "paid-prefix", "input");
+        putLink(workspace, "paid-prefix", "paid", "input");
+        putLink(workspace, "paid", "middle", "input");
+        putLink(workspace, "middle", "balance", "input");
+        putLink(workspace, "balance", "suffix", "input");
+
+        ObjectNode wallet = objectMapper.createObjectNode();
+        wallet.put("name", "通用账户");
+        wallet.put("paid", 10.00);
+        wallet.put("balance", 230.00);
+        ObjectNode wallet2 = objectMapper.createObjectNode();
+        wallet2.put("name", "通用账户1");
+        wallet2.put("paid", 11.00);
+        wallet2.put("balance", 231.00);
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+        BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("wallets", objectMapper.valueToTree(List.of(wallet, wallet2))));
+
+        assertThat(result.renderedContent())
+                .isEqualTo("其中通用账户支付10元，余额230元通用账户1支付11元，余额231元");
+        assertThat(result.usedParams()).containsExactly("wallets");
+    }
+
+    @Test
     void shouldRenderLinkedTimeFormatWithRawPreviewValue() {
         ObjectNode sendTime = paramBlock(4L, "sendTime", ParamType.TIME);
         sendTime.put("id", "time-param");

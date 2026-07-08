@@ -1009,8 +1009,13 @@ public class BlocklyRenderer {
                     "controls_forEach 暂不支持嵌套循环");
         }
         JsonNode loop = graph.requireLoop(blockId);
-        String collectionBlockId = requiredGraphText(loop, "collectionBlockId",
-                "controls_forEach 缺少 collectionBlockId");
+        String collectionBlockId = text(loop.get("collectionBlockId"));
+        if (!StringUtils.hasText(collectionBlockId)) {
+            collectionBlockId = graph.inputSourceId(blockId, "collection", "LIST");
+        }
+        if (!StringUtils.hasText(collectionBlockId)) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "controls_forEach 缺少 collectionBlockId");
+        }
         String bodyBlockId = requiredGraphText(loop, "bodyBlockId", "controls_forEach 缺少 bodyBlockId");
         BlocklyRenderValue listValue = renderGraphValue(collectionBlockId, graph, context, visiting);
         BlocklyValueType itemType;
@@ -1049,7 +1054,8 @@ public class BlocklyRenderer {
                 context.popLoopContext();
             }
         }
-        return new BlocklyRenderValue(BlocklyValueType.STRING, result.toString());
+        return prependGraphInput(blockId, graph, context, visiting,
+                new BlocklyRenderValue(BlocklyValueType.STRING, result.toString()));
     }
 
     private BlocklyRenderValue renderGraphInput(String blockId,
@@ -1740,6 +1746,7 @@ public class BlocklyRenderer {
                         BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF,
                         BlocklyBlockTypes.LOOP_ITEM_VALUE,
                         BlocklyBlockTypes.LOOP_ITEM_FIELD,
+                        BlocklyBlockTypes.CONTROLS_FOR_EACH,
                         BlocklyBlockTypes.TEXT_JOIN,
                         BlocklyBlockTypes.AMOUNT_FORMAT,
                         BlocklyBlockTypes.TIME_FORMAT,
@@ -1760,6 +1767,8 @@ public class BlocklyRenderer {
                         BlocklyBlockTypes.LOOP_ITEM_VALUE,
                         BlocklyBlockTypes.LOOP_ITEM_FIELD ->
                         "input".equals(targetPort) ? targetPort : null;
+                case BlocklyBlockTypes.CONTROLS_FOR_EACH ->
+                        Set.of("input", "collection", "LIST").contains(targetPort) ? targetPort : null;
                 case BlocklyBlockTypes.TEXT_JOIN -> targetPort;
                 case BlocklyBlockTypes.AMOUNT_FORMAT, BlocklyBlockTypes.TIME_FORMAT ->
                         Set.of("VALUE", "input").contains(targetPort) ? targetPort : null;
