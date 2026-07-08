@@ -41,6 +41,13 @@ xxl:
     accessToken: ${XXL_JOB_ACCESS_TOKEN:}
 
 app:
+  employee:
+    mode: ${APP_EMPLOYEE_MODE:remote}
+    remote:
+      base-url: ${EMPLOYEE_SERVICE_BASE_URL:${ORG_SERVICE_BASE_URL:}}
+      context-path: ${EMPLOYEE_SERVICE_CONTEXT_PATH:public-jadp-api}
+      connect-timeout: ${EMPLOYEE_SERVICE_CONNECT_TIMEOUT:2s}
+      read-timeout: ${EMPLOYEE_SERVICE_READ_TIMEOUT:5s}
   organization:
     mode: ${APP_ORGANIZATION_MODE:remote}
     remote:

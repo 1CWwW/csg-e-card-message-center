@@ -2,6 +2,7 @@ package com.csg.ecard.messagecenter.infrastructure.employee;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -18,6 +19,7 @@ import java.util.Set;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@ConditionalOnProperty(prefix = "app.employee", name = "mode", havingValue = "preset", matchIfMissing = true)
 public class DefaultEmployeeInfoProvider implements EmployeeInfoProvider {
 
     private final LocalUnitPathProperties localUnitPathProperties;

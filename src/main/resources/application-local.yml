@@ -11,6 +11,8 @@ message:
         IN_APP: SUCCESS
 
 app:
+  employee:
+    mode: preset
   organization:
     mode: preset
     preset:
