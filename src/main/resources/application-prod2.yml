@@ -1,0 +1,115 @@
+tsf_consul_ip: ${TSF_consul_ip:${TSF_CONSUL_IP:172.16.121.65}}
+tsf_consul_port: ${TSF_consul_port:${TSF_CONSUL_PORT:8500}}
+tsf_token: ${TSF_consul_token:${TSF_CONSUL_TOKEN:${CONSUL_TOKEN:}}}
+tsf_local_port: ${TSF_LOCAL_PORT:${server.port}}
+
+tsf:
+  service-registry:
+    enabled: ${CONSUL_ENABLED:true}
+    auto-registration:
+      enabled: ${CONSUL_REGISTER:true}
+  discovery:
+    enabled: ${CONSUL_DISCOVERY_ENABLED:true}
+    register: ${CONSUL_REGISTER:true}
+    service-name: ${spring.application.name}
+    port: ${tsf_local_port}
+    health-check-path: ${server.servlet.context-path}/actuator/health
+    health-check-interval: 10s
+    register-health-check: true
+
+spring:
+  cloud:
+    consul:
+      enabled: ${CONSUL_ENABLED:true}
+      host: ${tsf_consul_ip}
+      port: ${tsf_consul_port}
+      token: ${tsf_token}
+      discovery:
+        enabled: ${CONSUL_DISCOVERY_ENABLED:true}
+        register: ${CONSUL_REGISTER:true}
+        service-name: ${spring.application.name}
+        health-check-path: ${server.servlet.context-path}/actuator/health
+        health-check-interval: 10s
+        register-health-check: true
+  datasource:
+    driver-class-name: dm.jdbc.driver.DmDriver
+    url: ${DM_DB_URL:jdbc:dm://HQXT?compatibleMode=oracle&dmsvcconf=/etc/dm_svc.conf/DB_BASIC}
+    username: ${DM_DB_USERNAME:DB_BASIC}
+    password: ${DM_DB_PASSWORD:decrypt(BC1D5C20B1159F4EF57F526CD49C49E1)}
+    hikari:
+      minimum-idle: 10
+      maximum-pool-size: 50
+      max-lifetime: 1800000
+      connection-test-query: SELECT 1
+  data:
+    redis:
+      host: redis
+      port: 6379
+      database: 0
+      password: decrypt(0E28AD900F694CB22B3444C5F6CF34BE)
+      timeout: 3000ms
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq-svc}
+    port: ${RABBITMQ_PORT:32115}
+    username: ${RABBITMQ_USERNAME:wA4jAbw9fLamm5JOnVdHrDgi9j4SdGnj}
+    password: ${RABBITMQ_PASSWORD:decrypt(16EDE5EBE401E3832FE5738CA41AA5A22D1A5E37E645838579D0C6861AFF742157C9A0E74A4E06B1259F929C0A42296B)}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+
+xxl:
+  job:
+    enabled: ${XXL_JOB_ENABLED:true}
+    admin:
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://e-card-e-xxl-job-service:8086/e-xxl-job-admin}
+    accessToken: ${XXL_JOB_ACCESS_TOKEN:ecard_xxl_job_token}
+    executor:
+      appname: ${XXL_JOB_EXECUTOR_APPNAME:${spring.application.name}}
+      address: ${XXL_JOB_EXECUTOR_ADDRESS:}
+      ip: ${XXL_JOB_EXECUTOR_IP:}
+      port: ${XXL_JOB_EXECUTOR_PORT:9999}
+      logpath: ${XXL_JOB_EXECUTOR_LOGPATH:/logs/xxl-job/}
+      logretentiondays: ${XXL_JOB_EXECUTOR_LOGRETENTIONDAYS:30}
+
+app:
+  employee:
+    mode: ${APP_EMPLOYEE_MODE:remote}
+    remote:
+      base-url: ${APP_EMPLOYEE_REMOTE_BASE_URL:${PUBLIC_JADP_SERVICE_URL:}}
+      context-path: ${APP_EMPLOYEE_REMOTE_CONTEXT_PATH:${PUBLIC_JADP_SERVICE_CONTEXT_PATH:e-jadp}}
+  organization:
+    mode: ${APP_ORGANIZATION_MODE:remote}
+    remote:
+      base-url: ${APP_ORGANIZATION_REMOTE_BASE_URL:${PUBLIC_JADP_SERVICE_URL:}}
+      context-path: ${APP_ORGANIZATION_REMOTE_CONTEXT_PATH:${PUBLIC_JADP_SERVICE_CONTEXT_PATH:e-jadp}}
+  message-send:
+    sms:
+      enabled: ${MESSAGE_SEND_SMS_ENABLED:false}
+      xxpt-type: ${MESSAGE_SEND_SMS_XXPT_TYPE:NANWANG}
+      base-url: ${MESSAGE_SEND_SMS_BASE_URL:}
+      authorization: ${MESSAGE_SEND_SMS_AUTHORIZATION:}
+    email:
+      enabled: ${MESSAGE_SEND_EMAIL_ENABLED:false}
+      host: ${MESSAGE_SEND_EMAIL_HOST:}
+      port: ${MESSAGE_SEND_EMAIL_PORT:}
+      username: ${MESSAGE_SEND_EMAIL_USERNAME:}
+      password: ${MESSAGE_SEND_EMAIL_PASSWORD:}
+      protocol: ${MESSAGE_SEND_EMAIL_PROTOCOL:smtp}
+      auth: ${MESSAGE_SEND_EMAIL_AUTH:true}
+      starttls-enable: ${MESSAGE_SEND_EMAIL_STARTTLS_ENABLE:false}
+    elink:
+      enabled: ${MESSAGE_SEND_ELINK_ENABLED:true}
+      base-url: ${MESSAGE_SEND_ELINK_BASE_URL:https://10.92.185.218:443/cgi-bin}
+      token-path: ${MESSAGE_SEND_ELINK_TOKEN_PATH:gettoken}
+      send-msg-path: ${MESSAGE_SEND_ELINK_SEND_MSG_PATH:message/send}
+      app-id: ${MESSAGE_SEND_ELINK_APP_ID:wl3709e1de3c}
+      secret: ${MESSAGE_SEND_ELINK_SECRET:vdmdRC35JQw_y_RGCHAEhk__7OmtJe4jof1J_QbgGdo}
+      agent-id: ${MESSAGE_SEND_ELINK_AGENT_ID:1000953}
+      connect-timeout: ${MESSAGE_SEND_ELINK_CONNECT_TIMEOUT:2s}
+      read-timeout: ${MESSAGE_SEND_ELINK_READ_TIMEOUT:5s}
+    in-app:
+      enabled: ${MESSAGE_SEND_IN_APP_ENABLED:false}
+      notification-url: ${MESSAGE_SEND_IN_APP_NOTIFICATION_URL:}
+
+public.jadp.service: ${PUBLIC_JADP_SERVICE:e-jadp-service}
+public.jadp.service.contextPath: ${PUBLIC_JADP_SERVICE_CONTEXT_PATH:e-jadp}
+public.jadp.service.url: ${PUBLIC_JADP_SERVICE_URL:}
