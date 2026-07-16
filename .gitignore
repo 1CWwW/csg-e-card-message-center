@@ -1,10 +1,51 @@
+# Maven
 target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+
+# Runtime logs and JVM diagnostics
 logs/
 *.log
+hs_err_pid*
+replay_pid*
+*.hprof
+*.jfr
 
+# IntelliJ IDEA / VS Code
 .idea/
 *.iml
+*.ipr
+*.iws
+out/
 .vscode/
 
+# Eclipse
+.classpath
+.project
+.settings/
+.factorypath
+
+# Local environment and tool state
+.env
+.env.*
+!.env.example
+.codex/
+.agents/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# Operating system
 .DS_Store
 Thumbs.db

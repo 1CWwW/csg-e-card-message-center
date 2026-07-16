@@ -1359,6 +1359,7 @@ public class MessagePushServiceImpl implements MessagePushService {
         record.setSceneParams(serializedSceneParams);
         record.setMessageContent(result.getMessageContent());
         record.setUserId(request.getUserId());
+        record.setUserName(request.getUserName());
         record.setUserOrgId(request.getUserOrgId());
         record.setReceiveUserId(request.getUserId());
         record.setReceiveCorpId(firstText(request.getReceiveCorpId(), request.getUserOrgId()));

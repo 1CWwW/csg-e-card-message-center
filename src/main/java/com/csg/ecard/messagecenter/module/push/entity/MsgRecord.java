@@ -36,6 +36,7 @@ public class MsgRecord extends BaseEntity {
     private String sceneParams;
     private String messageContent;
     private String userId;
+    private String userName;
     private String userOrgId;
     private String receiveUserId;
     private String receiveCorpId;

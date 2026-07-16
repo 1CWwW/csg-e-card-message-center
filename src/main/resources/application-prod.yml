@@ -33,14 +33,12 @@ spring:
         register-health-check: true
   datasource:
     driver-class-name: dm.jdbc.driver.DmDriver
-    url: ${DM_DB_URL:jdbc:dm://dm:5236/DB_BASIC}
+    url: ${DM_DB_URL:jdbc:dm://HQXT?compatibleMode=oracle&dmsvcconf=/etc/dm_svc.conf/DB_BASIC}
     username: ${DM_DB_USERNAME:DB_BASIC}
     password: ${DM_DB_PASSWORD:decrypt(BC1D5C20B1159F4EF57F526CD49C49E1)}
     hikari:
       minimum-idle: 10
       maximum-pool-size: 50
-      connection-timeout: 30000
-      idle-timeout: 600000
       max-lifetime: 1800000
       connection-test-query: SELECT 1
   data:
@@ -54,7 +52,7 @@ spring:
     host: ${RABBITMQ_HOST:rabbitmq-svc}
     port: ${RABBITMQ_PORT:32115}
     username: ${RABBITMQ_USERNAME:wA4jAbw9fLamm5JOnVdHrDgi9j4SdGnj}
-    password: ${RABBITMQ_PASSWORD:16EDE5EBE401E3832FE5738CA41AA5A22D1A5E37E645838579D0C6861AFF742157C9A0E74A4E06B1259F929C0A42296B}
+    password: ${RABBITMQ_PASSWORD:decrypt(16EDE5EBE401E3832FE5738CA41AA5A22D1A5E37E645838579D0C6861AFF742157C9A0E74A4E06B1259F929C0A42296B)}
     publisher-confirm-type: correlated
     publisher-returns: true
 
@@ -76,12 +74,12 @@ app:
   employee:
     mode: ${APP_EMPLOYEE_MODE:remote}
     remote:
-      base-url: ${APP_EMPLOYEE_REMOTE_BASE_URL:${PUBLIC_JADP_SERVICE_URL:http://172.17.177.37:31071}}
+      base-url: ${APP_EMPLOYEE_REMOTE_BASE_URL:${PUBLIC_JADP_SERVICE_URL:}}
       context-path: ${APP_EMPLOYEE_REMOTE_CONTEXT_PATH:${PUBLIC_JADP_SERVICE_CONTEXT_PATH:e-jadp}}
   organization:
     mode: ${APP_ORGANIZATION_MODE:remote}
     remote:
-      base-url: ${APP_ORGANIZATION_REMOTE_BASE_URL:${PUBLIC_JADP_SERVICE_URL:http://172.17.177.37:31071}}
+      base-url: ${APP_ORGANIZATION_REMOTE_BASE_URL:${PUBLIC_JADP_SERVICE_URL:}}
       context-path: ${APP_ORGANIZATION_REMOTE_CONTEXT_PATH:${PUBLIC_JADP_SERVICE_CONTEXT_PATH:e-jadp}}
   message-send:
     sms:
@@ -104,7 +102,7 @@ app:
       token-path: ${MESSAGE_SEND_ELINK_TOKEN_PATH:gettoken}
       send-msg-path: ${MESSAGE_SEND_ELINK_SEND_MSG_PATH:message/send}
       app-id: ${MESSAGE_SEND_ELINK_APP_ID:wl3709e1de3c}
-      secret: ${MESSAGE_SEND_ELINK_SECRET:decrypt(5BD73DE76A6CE25DA4DC6503D66C55ACE0560EA0F1AFCE28EFA091E9E8115E8BB86FFA0A941CF194002E07C96F34E251)}
+      secret: ${MESSAGE_SEND_ELINK_SECRET:vdmdRC35JQw_y_RGCHAEhk__7OmtJe4jof1J_QbgGdo}
       agent-id: ${MESSAGE_SEND_ELINK_AGENT_ID:1000953}
       connect-timeout: ${MESSAGE_SEND_ELINK_CONNECT_TIMEOUT:2s}
       read-timeout: ${MESSAGE_SEND_ELINK_READ_TIMEOUT:5s}
@@ -112,6 +110,6 @@ app:
       enabled: ${MESSAGE_SEND_IN_APP_ENABLED:false}
       notification-url: ${MESSAGE_SEND_IN_APP_NOTIFICATION_URL:}
 
-public.jadp.service: ${PUBLIC_JADP_SERVICE:public-jadp-service}
+public.jadp.service: ${PUBLIC_JADP_SERVICE:e-jadp-service}
 public.jadp.service.contextPath: ${PUBLIC_JADP_SERVICE_CONTEXT_PATH:e-jadp}
-public.jadp.service.url: ${PUBLIC_JADP_SERVICE_URL:http://172.17.177.37:31071}
+public.jadp.service.url: ${PUBLIC_JADP_SERVICE_URL:}

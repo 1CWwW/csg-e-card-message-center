@@ -35,6 +35,10 @@ public class MessageRecordListVO {
     private String channelType;
     private String channelTypeDesc;
     private String userId;
+
+    @Schema(description = "推送时保存的接收人姓名快照，可能为空")
+    private String userName;
+
     private String userOrgId;
 
     @Schema(description = "消息业务优先级：HIGH、NORMAL、LOW；与渠道匹配优先级无关")

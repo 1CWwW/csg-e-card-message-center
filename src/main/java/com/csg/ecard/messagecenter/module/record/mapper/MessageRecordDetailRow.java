@@ -26,6 +26,7 @@ public class MessageRecordDetailRow {
     private String channelType;
     private String channelTypeConfig;
     private String userId;
+    private String userName;
     private String userOrgId;
     private String messageContent;
     private String sceneParams;

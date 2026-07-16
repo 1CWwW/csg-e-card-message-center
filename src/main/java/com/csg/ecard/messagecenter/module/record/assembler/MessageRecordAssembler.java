@@ -79,6 +79,7 @@ public class MessageRecordAssembler {
         vo.setCreatedAt(row.getCreatedAt());
         vo.setUpdatedAt(row.getUpdatedAt());
         vo.setUserId(row.getUserId());
+        vo.setUserName(row.getUserName());
         vo.setUserOrgId(row.getUserOrgId());
         MessagePriority priority = normalizePriority(row.getPriority());
         vo.setPriority(priority.getCode());
