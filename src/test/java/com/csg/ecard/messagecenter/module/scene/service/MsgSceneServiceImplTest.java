@@ -320,11 +320,11 @@ class MsgSceneServiceImplTest {
     @Test
     void shouldDeleteScene() {
         when(msgSceneMapper.selectById(1L)).thenReturn(scene(1L, "CODE_DELETE", CommonStatus.ENABLE.getCode()));
-        when(msgSceneMapper.deleteById(eq(1L))).thenReturn(1);
+        when(msgSceneMapper.logicalDeleteById(eq(1L))).thenReturn(1);
 
         msgSceneService.delete(1L);
 
-        verify(msgSceneMapper).deleteById(1L);
+        verify(msgSceneMapper).logicalDeleteById(1L);
     }
 
     @Test

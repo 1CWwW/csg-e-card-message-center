@@ -27,6 +27,8 @@ public class OrganizationProperties {
 
     private Remote remote = new Remote();
 
+    private Tree tree = new Tree();
+
     @Getter
     @Setter
     public static class Preset {
@@ -54,5 +56,30 @@ public class OrganizationProperties {
         private Duration connectTimeout = Duration.ofSeconds(2);
 
         private Duration readTimeout = Duration.ofSeconds(5);
+
+        /**
+         * 全量组织数据本地缓存时长。
+         */
+        private Duration cacheTtl = Duration.ofMinutes(10);
+    }
+
+    @Getter
+    @Setter
+    public static class Tree {
+
+        /**
+         * 父节点直接子节点缓存时长。
+         */
+        private Duration childrenCacheTtl = Duration.ofMinutes(5);
+
+        /**
+         * 组织搜索最大返回数量。
+         */
+        private int searchLimit = 50;
+
+        /**
+         * 批量回显允许的最大组织数量。
+         */
+        private int resolveLimit = 200;
     }
 }

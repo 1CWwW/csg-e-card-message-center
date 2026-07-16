@@ -159,7 +159,7 @@ public class MsgSceneServiceImpl implements MsgSceneService {
             throw new BizException(ErrorCode.DELETE_NOT_ALLOWED,
                     "当前场景存在 " + templateCount + " 个模板，无法删除。");
         }
-        msgSceneMapper.deleteById(id);
+        msgSceneMapper.logicalDeleteById(id);
     }
 
     @Override

@@ -48,6 +48,6 @@ public abstract class BaseEntity implements Serializable {
 
     @TableLogic
     @TableField(fill = FieldFill.INSERT)
-    @Schema(description = "逻辑删除标记：0正常，1已删除")
+    @Schema(description = "逻辑删除标记：0正常，非0已删除")
     private Integer deleted;
 }

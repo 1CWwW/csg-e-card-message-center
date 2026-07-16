@@ -33,8 +33,7 @@ public class SyncPushDTO {
     @Schema(description = "场景参数", requiredMode = Schema.RequiredMode.REQUIRED)
     private Map<String, Object> sceneParams;
 
-    @NotBlank(message = "userId不能为空")
-    @Schema(description = "用户ID", requiredMode = Schema.RequiredMode.REQUIRED)
+    @Schema(description = "业务用户ID；与elinkUserId至少传一个")
     private String userId;
 
     @Schema(description = "用户姓名")
@@ -68,7 +67,7 @@ public class SyncPushDTO {
     @Schema(description = "消息发送人ID")
     private String senderUserId;
 
-    @Schema(description = "eLink用户ID")
+    @Schema(description = "eLink平台用户ID；与userId至少传一个，userId为空时后端使用该值补齐")
     private String elinkUserId;
 
     @Schema(description = "手机号")

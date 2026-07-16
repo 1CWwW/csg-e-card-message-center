@@ -1,0 +1,8 @@
+org.springframework.tsf.core.config.ContextConfiguration
+org.springframework.tsf.core.config.TsfUtilAutoConfiguration
+com.tencent.tsf.consul.config.ConsulConfigAutoConfiguration
+com.tencent.tsf.consul.TsfConsulAutoConfiguration
+com.tencent.tsf.discovery.MigrationPropertiesAutoConfiguration
+com.tencent.tsf.discovery.TsfConsulDiscoveryClientConfiguration
+com.tencent.tsf.serviceregistry.TsfServiceRegistryAutoConfiguration
+com.tencent.tsf.serviceregistry.ConsulAutoServiceRegistrationAutoConfiguration

@@ -6,8 +6,10 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 本地预设组织树，用于本地无法访问内网组织接口时开发联调。
@@ -26,6 +28,31 @@ public class PresetOrganizationProvider extends AbstractOrganizationProvider {
     }
 
     @Override
+    public List<OrganizationNode> children(String parentOrgId) {
+        return index().children(parentOrgId);
+    }
+
+    @Override
+    public Set<String> parentOrgIdsWithChildren(Collection<String> orgIds) {
+        return index().parentOrgIdsWithChildren(orgIds);
+    }
+
+    @Override
+    public List<OrganizationPath> resolve(Collection<String> orgIds) {
+        return index().resolve(orgIds);
+    }
+
+    @Override
+    public List<OrganizationPath> search(String keyword, int limit, String scopeOrgId) {
+        return index().search(keyword, limit, scopeOrgId);
+    }
+
+    @Override
+    public boolean isWithinScope(String orgId, String scopeOrgId) {
+        return index().isWithinScope(orgId, scopeOrgId);
+    }
+
+    @Override
     public List<String> resolveUnitPath(String orgId) {
         return resolveUnitPath(orgId, nodes(), localUnitPathProperties.getMaxDepth());
     }
@@ -40,6 +67,10 @@ public class PresetOrganizationProvider extends AbstractOrganizationProvider {
             }
         });
         return List.copyOf(nodeById.values());
+    }
+
+    private OrganizationIndex index() {
+        return new OrganizationIndex(nodes());
     }
 
     private OrganizationNode newNode(String unitId) {

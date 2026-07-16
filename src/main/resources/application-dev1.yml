@@ -1,0 +1,83 @@
+tsf_consul_ip: ${TSF_consul_ip:${TSF_CONSUL_IP:${CONSUL_HOST:127.0.0.1}}}
+tsf_consul_port: ${TSF_consul_port:${TSF_CONSUL_PORT:${CONSUL_PORT:8500}}}
+tsf_token: ${TSF_consul_token:${TSF_CONSUL_TOKEN:${CONSUL_TOKEN:}}}
+tsf_local_port: ${TSF_LOCAL_PORT:${server.port}}
+
+tsf:
+  service-registry:
+    enabled: ${CONSUL_ENABLED:true}
+    auto-registration:
+      enabled: ${CONSUL_REGISTER:true}
+  discovery:
+    enabled: ${CONSUL_DISCOVERY_ENABLED:true}
+    register: ${CONSUL_REGISTER:true}
+    service-name: ${spring.application.name}
+    port: ${tsf_local_port}
+    health-check-path: ${server.servlet.context-path}/actuator/health
+    health-check-interval: 10s
+    register-health-check: true
+
+spring:
+  cloud:
+    consul:
+      enabled: ${CONSUL_ENABLED:true}
+      host: ${tsf_consul_ip}
+      port: ${tsf_consul_port}
+      token: ${tsf_token}
+      discovery:
+        enabled: ${CONSUL_DISCOVERY_ENABLED:true}
+        register: ${CONSUL_REGISTER:true}
+        service-name: ${spring.application.name}
+        health-check-path: ${server.servlet.context-path}/actuator/health
+        health-check-interval: 10s
+        register-health-check: true
+  datasource:
+    driver-class-name: dm.jdbc.driver.DmDriver
+    url: ${DM_URL:jdbc:dm://127.0.0.1:5236?schema=${DM_SCHEMA:CSG_ECARD_MESSAGE_CENTER}}
+    username: ${DM_USERNAME:${DM_DB_USERNAME:}}
+    password: ${DM_PASSWORD:${DM_DB_PASSWORD:}}
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      connection-test-query: SELECT 1
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:0}
+      password: ${REDIS_PASSWORD:}
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: ${RABBITMQ_VIRTUAL_HOST:/}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: 5
+        retry:
+          enabled: true
+          max-attempts: 3
+
+xxl:
+  job:
+    enabled: ${XXL_JOB_ENABLED:false}
+    admin:
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://localhost:8081/xxl-job-admin}
+    accessToken: ${XXL_JOB_ACCESS_TOKEN:}
+
+app:
+  redis:
+    enabled: ${APP_REDIS_ENABLED:false}

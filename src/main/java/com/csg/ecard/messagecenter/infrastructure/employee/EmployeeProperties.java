@@ -40,5 +40,15 @@ public class EmployeeProperties {
         private Duration connectTimeout = Duration.ofSeconds(2);
 
         private Duration readTimeout = Duration.ofSeconds(5);
+
+        /**
+         * 员工信息本地缓存时长。
+         */
+        private Duration cacheTtl = Duration.ofMinutes(10);
+
+        /**
+         * 员工信息本地缓存最大条目数。
+         */
+        private int cacheMaxSize = 10000;
     }
 }

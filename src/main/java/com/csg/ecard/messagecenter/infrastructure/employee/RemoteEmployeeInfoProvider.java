@@ -1,23 +1,20 @@
 package com.csg.ecard.messagecenter.infrastructure.employee;
 
+import cn.hutool.cache.Cache;
+import cn.hutool.cache.CacheUtil;
 import com.csg.ecard.messagecenter.common.enums.ErrorCode;
 import com.csg.ecard.messagecenter.common.exception.BizException;
+import feign.FeignException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.web.client.ClientHttpRequestFactories;
-import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
-import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * 内网员工中心实现，用于补齐接收人联系方式和所属组织。
@@ -27,14 +24,16 @@ import java.util.stream.Collectors;
 @ConditionalOnProperty(prefix = "app.employee", name = "mode", havingValue = "remote")
 public class RemoteEmployeeInfoProvider implements EmployeeInfoProvider {
 
+    private final JadpUserClient jadpUserClient;
     private final EmployeeProperties employeeProperties;
-    private final RestClient restClient;
+    private final Cache<String, EmployeeInfo> employeeCache;
 
-    public RemoteEmployeeInfoProvider(EmployeeProperties employeeProperties, RestClient.Builder builder) {
+    public RemoteEmployeeInfoProvider(JadpUserClient jadpUserClient, EmployeeProperties employeeProperties) {
+        this.jadpUserClient = jadpUserClient;
         this.employeeProperties = employeeProperties;
-        this.restClient = builder
-                .requestFactory(requestFactory(employeeProperties))
-                .build();
+        EmployeeProperties.Remote remote = employeeProperties.getRemote();
+        long timeoutMillis = cacheEnabled(remote) ? remote.getCacheTtl().toMillis() : 0L;
+        this.employeeCache = CacheUtil.newLRUCache(Math.max(remote.getCacheMaxSize(), 1), timeoutMillis);
     }
 
     @Override
@@ -43,34 +42,58 @@ public class RemoteEmployeeInfoProvider implements EmployeeInfoProvider {
         if (normalizedUserIds.isEmpty()) {
             return Map.of();
         }
-        EmployeeProperties.Remote remote = employeeProperties.getRemote();
-        if (!StringUtils.hasText(remote.getBaseUrl())) {
-            throw new BizException(ErrorCode.EXTERNAL_SERVICE_ERROR, "员工中心地址未配置");
+
+        Map<String, EmployeeInfo> resolved = new LinkedHashMap<>();
+        List<String> missingUserIds = new ArrayList<>();
+        for (String userId : normalizedUserIds) {
+            EmployeeInfo cached = cacheEnabled(employeeProperties.getRemote()) ? employeeCache.get(userId) : null;
+            if (cached != null) {
+                resolved.put(userId, cached);
+            } else {
+                missingUserIds.add(userId);
+            }
         }
 
-        String url = buildUrl(remote, "/v1/user/getByIds");
-        try {
-            RemoteUserDTO[] response = restClient.post()
-                    .uri(url)
-                    .body(normalizedUserIds)
-                    .retrieve()
-                    .body(RemoteUserDTO[].class);
-            if (response == null || response.length == 0) {
-                return Map.of();
-            }
-            Map<String, EmployeeInfo> result = new LinkedHashMap<>();
-            for (RemoteUserDTO user : response) {
-                EmployeeInfo info = toEmployeeInfo(user);
-                if (info != null && StringUtils.hasText(info.userId())) {
-                    result.put(info.userId(), info);
+        if (!missingUserIds.isEmpty()) {
+            try {
+                List<RemoteUserDTO> response = jadpUserClient.getByUserIds(missingUserIds);
+                if (response != null) {
+                    for (RemoteUserDTO user : response) {
+                        EmployeeInfo info = toEmployeeInfo(user);
+                        if (info != null && StringUtils.hasText(info.userId())) {
+                            resolved.put(info.userId(), info);
+                            cacheEmployee(info);
+                        }
+                    }
                 }
+            } catch (FeignException ex) {
+                log.warn("Employee remote query failed. userCount={}, status={}, cause={}",
+                        missingUserIds.size(), ex.status(), ex.getMessage());
+                throw new BizException(ErrorCode.EXTERNAL_SERVICE_ERROR, "员工中心调用失败");
             }
-            return result;
-        } catch (RestClientException ex) {
-            log.warn("Employee remote query failed. url={}, userCount={}, cause={}",
-                    url, normalizedUserIds.size(), ex.getMessage());
-            throw new BizException(ErrorCode.EXTERNAL_SERVICE_ERROR, "员工中心调用失败");
         }
+
+        Map<String, EmployeeInfo> result = new LinkedHashMap<>();
+        for (String userId : normalizedUserIds) {
+            EmployeeInfo info = resolved.get(userId);
+            if (info != null) {
+                result.put(userId, info);
+            }
+        }
+        return result;
+    }
+
+    private void cacheEmployee(EmployeeInfo employeeInfo) {
+        if (!cacheEnabled(employeeProperties.getRemote())) {
+            return;
+        }
+        employeeCache.put(employeeInfo.userId(), employeeInfo);
+    }
+
+    private boolean cacheEnabled(EmployeeProperties.Remote remote) {
+        return remote.getCacheTtl() != null
+                && !remote.getCacheTtl().isZero()
+                && !remote.getCacheTtl().isNegative();
     }
 
     @Override
@@ -111,38 +134,4 @@ public class RemoteEmployeeInfoProvider implements EmployeeInfoProvider {
         );
     }
 
-    private String buildUrl(EmployeeProperties.Remote remote, String path) {
-        String baseUrl = trimTrailingSlash(remote.getBaseUrl());
-        String contextPath = trimSlashes(remote.getContextPath());
-        return contextPath == null ? baseUrl + path : baseUrl + "/" + contextPath + path;
-    }
-
-    private String trimTrailingSlash(String value) {
-        String result = value.trim();
-        while (result.endsWith("/")) {
-            result = result.substring(0, result.length() - 1);
-        }
-        return result;
-    }
-
-    private String trimSlashes(String value) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
-        String result = value.trim();
-        while (result.startsWith("/")) {
-            result = result.substring(1);
-        }
-        while (result.endsWith("/")) {
-            result = result.substring(0, result.length() - 1);
-        }
-        return result.isEmpty() ? null : result;
-    }
-
-    private ClientHttpRequestFactory requestFactory(EmployeeProperties properties) {
-        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.DEFAULTS
-                .withConnectTimeout(properties.getRemote().getConnectTimeout())
-                .withReadTimeout(properties.getRemote().getReadTimeout());
-        return ClientHttpRequestFactories.get(settings);
-    }
 }

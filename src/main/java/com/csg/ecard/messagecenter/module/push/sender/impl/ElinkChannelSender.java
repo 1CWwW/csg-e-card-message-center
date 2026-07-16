@@ -6,6 +6,7 @@ import com.csg.ecard.messagecenter.module.push.sender.ChannelSendRequest;
 import com.csg.ecard.messagecenter.module.push.sender.ChannelSendResult;
 import com.csg.ecard.messagecenter.module.push.sender.ChannelSender;
 import com.csg.ecard.messagecenter.module.push.sender.MessageSendInfo;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
@@ -24,6 +25,7 @@ import java.util.List;
  * eLink 应用消息发送适配器。
  */
 @Component
+@Slf4j
 @ConditionalOnProperty(prefix = "message.sender", name = "mode", havingValue = "real", matchIfMissing = true)
 public class ElinkChannelSender implements ChannelSender {
 
@@ -58,12 +60,12 @@ public class ElinkChannelSender implements ChannelSender {
         if (configError != null) {
             return ChannelSendResult.failedNonRetryable(configError);
         }
-        if (!StringUtils.hasText(info.getElinkUserid())) {
-            return ChannelSendResult.failedNonRetryable("eLink用户ID不能为空");
+        String receiveUserId = resolveReceiveUserId(info);
+        if (!StringUtils.hasText(receiveUserId)) {
+            return ChannelSendResult.failedNonRetryable("eLink接收人userId不能为空");
         }
-
         try {
-            return sendWithToken(info, elink, false);
+            return sendWithToken(info, elink, receiveUserId, false);
         } catch (RestClientException ex) {
             return ChannelSendResult.failed("eLink平台调用失败：" + ex.getMessage());
         }
@@ -71,6 +73,7 @@ public class ElinkChannelSender implements ChannelSender {
 
     private ChannelSendResult sendWithToken(MessageSendInfo info,
                                             MessageSendProperties.Elink elink,
+                                            String receiveUserId,
                                             boolean tokenRefreshed) {
         RestTemplate restTemplate = restTemplate(elink);
         String requestUrl = UriComponentsBuilder.fromUriString(resolveSendUrl(elink))
@@ -78,16 +81,19 @@ public class ElinkChannelSender implements ChannelSender {
                 .toUriString();
         ElinkMessageResponse response = restTemplate.postForObject(
                 requestUrl,
-                new HttpEntity<>(buildMessage(info, elink), jsonHeaders()),
+                new HttpEntity<>(buildMessage(info, elink, receiveUserId), jsonHeaders()),
                 ElinkMessageResponse.class);
         if (response == null) {
             return ChannelSendResult.failed("eLink平台无返回结果");
         }
         if (TOKEN_INVALID_CODE.equals(response.errcode()) && !tokenRefreshed) {
             clearAccessToken();
-            return sendWithToken(info, elink, true);
+            return sendWithToken(info, elink, receiveUserId, true);
         }
         if (SUCCESS_CODE.equals(response.errcode())) {
+            if (StringUtils.hasText(response.invaliduser())) {
+                return ChannelSendResult.failedNonRetryable("eLink接收人无效");
+            }
             return ChannelSendResult.succeeded();
         }
         String message = StringUtils.hasText(response.errmsg()) ? response.errmsg() : "eLink平台返回失败";
@@ -97,14 +103,23 @@ public class ElinkChannelSender implements ChannelSender {
         return ChannelSendResult.failedNonRetryable(message);
     }
 
-    private ElinkMessageRequest buildMessage(MessageSendInfo info, MessageSendProperties.Elink elink) {
+    private ElinkMessageRequest buildMessage(MessageSendInfo info,
+                                             MessageSendProperties.Elink elink,
+                                             String receiveUserId) {
         if (StringUtils.hasText(info.getTitle()) && StringUtils.hasText(info.getUrl())) {
-            return new ElinkMessageRequest(messageRecordId(info), elink.getAgentId(), info.getElinkUserid(), "textcard",
+            return new ElinkMessageRequest(messageRecordId(info), elink.getAgentId(), receiveUserId, "textcard",
                     new ElinkText(info.getContent()),
                     new ElinkTextCard(info.getTitle(), info.getContent(), info.getUrl()));
         }
-        return new ElinkMessageRequest(messageRecordId(info), elink.getAgentId(), info.getElinkUserid(), "text",
+        return new ElinkMessageRequest(messageRecordId(info), elink.getAgentId(), receiveUserId, "text",
                 new ElinkText(info.getContent()), null);
+    }
+
+    private String resolveReceiveUserId(MessageSendInfo info) {
+        if (StringUtils.hasText(info.getElinkUserid())) {
+            return info.getElinkUserid().trim();
+        }
+        return StringUtils.hasText(info.getReceiveUserId()) ? info.getReceiveUserId().trim() : null;
     }
 
     private String messageRecordId(MessageSendInfo info) {
@@ -125,6 +140,11 @@ public class ElinkChannelSender implements ChannelSender {
                     .toUriString();
             ElinkTokenResponse response = restTemplate.getForObject(tokenUrl, ElinkTokenResponse.class);
             if (response == null || !SUCCESS_CODE.equals(response.errcode()) || !StringUtils.hasText(response.access_token())) {
+                logConfigSummary(elink);
+                log.warn("eLink accessToken request rejected. errcode={}, errmsg={}, tokenPresent={}",
+                        response == null ? null : response.errcode(),
+                        response == null ? null : response.errmsg(),
+                        response != null && StringUtils.hasText(response.access_token()));
                 throw new IllegalStateException("获取eLink accessToken失败");
             }
             accessToken = response.access_token();
@@ -173,6 +193,18 @@ public class ElinkChannelSender implements ChannelSender {
         return null;
     }
 
+    /**
+     * 输出 eLink 配置诊断信息，不记录密钥、Token 或携带密钥的请求地址。
+     */
+    private void logConfigSummary(MessageSendProperties.Elink elink) {
+        String secret = elink.getSecret();
+        boolean secretConfigured = StringUtils.hasText(secret);
+        boolean encryptedExpressionRemaining = secretConfigured && secret.trim().startsWith("decrypt(");
+        log.info("eLink configuration summary. enabled={}, tokenUrlConfigured={}, sendUrlConfigured={}, appId={}, agentId={}, secretConfigured={}, encryptedExpressionRemaining={}, secret={}, tokenUrl={}",
+                elink.isEnabled(), StringUtils.hasText(resolveTokenUrl(elink)), StringUtils.hasText(resolveSendUrl(elink)),
+                elink.getAppId(), elink.getAgentId(), secretConfigured, encryptedExpressionRemaining, elink.getSecret(), elink.getTokenUrl());
+    }
+
     private String resolveTokenUrl(MessageSendProperties.Elink elink) {
         if (StringUtils.hasText(elink.getTokenUrl())) {
             return elink.getTokenUrl();
@@ -208,7 +240,7 @@ public class ElinkChannelSender implements ChannelSender {
     private record ElinkTextCard(String title, String description, String url) {
     }
 
-    private record ElinkMessageResponse(String errcode, String errmsg) {
+    private record ElinkMessageResponse(String errcode, String errmsg, String invaliduser) {
     }
 
     private record ElinkTokenResponse(String errcode, String errmsg, String access_token, Long expires_in) {

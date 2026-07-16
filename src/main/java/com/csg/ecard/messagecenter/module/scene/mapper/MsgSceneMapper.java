@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.csg.ecard.messagecenter.module.scene.entity.MsgScene;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.Collection;
 import java.util.List;
@@ -12,6 +13,15 @@ import java.util.List;
  * 场景数据访问接口。
  */
 public interface MsgSceneMapper extends BaseMapper<MsgScene> {
+
+    /**
+     * 逻辑删除场景，并以主键作为删除标记，支持同一场景编码再次创建。
+     *
+     * @param id 场景ID
+     * @return 受影响行数
+     */
+    @Update("UPDATE msg_scene SET deleted = id WHERE id = #{id} AND deleted = 0")
+    int logicalDeleteById(@Param("id") Long id);
 
     /**
      * 批量统计场景下未删除模板数量。

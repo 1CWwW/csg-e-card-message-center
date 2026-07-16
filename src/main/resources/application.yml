@@ -1,13 +1,13 @@
 server:
   port: 8080
   servlet:
-    context-path: /message-center
+    context-path: /xxzx-api
 
 spring:
   application:
-    name: csg-e-card-message-center
+    name: e-msg-service
   profiles:
-    active: dev,local
+    active: dev1,local2
   jackson:
     time-zone: GMT+8
     date-format: yyyy-MM-dd HH:mm:ss
@@ -62,6 +62,17 @@ management:
 app:
   redis:
     enabled: ${APP_REDIS_ENABLED:true}
+  organization:
+    remote:
+      cache-ttl: ${APP_ORGANIZATION_REMOTE_CACHE_TTL:10m}
+    tree:
+      children-cache-ttl: ${APP_ORGANIZATION_CHILDREN_CACHE_TTL:5m}
+      search-limit: ${APP_ORGANIZATION_SEARCH_LIMIT:50}
+      resolve-limit: ${APP_ORGANIZATION_RESOLVE_LIMIT:200}
+  employee:
+    remote:
+      cache-ttl: ${APP_EMPLOYEE_REMOTE_CACHE_TTL:10m}
+      cache-max-size: ${APP_EMPLOYEE_REMOTE_CACHE_MAX_SIZE:10000}
   message-id:
     prefix: MSG
   idempotent:

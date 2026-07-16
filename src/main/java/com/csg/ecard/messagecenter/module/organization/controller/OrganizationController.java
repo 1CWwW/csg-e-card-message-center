@@ -1,13 +1,20 @@
 package com.csg.ecard.messagecenter.module.organization.controller;
 
 import com.csg.ecard.messagecenter.common.result.ApiResult;
+import com.csg.ecard.messagecenter.module.organization.dto.OrganizationResolveDTO;
 import com.csg.ecard.messagecenter.module.organization.service.OrganizationService;
+import com.csg.ecard.messagecenter.module.organization.vo.OrganizationLazyNodeVO;
 import com.csg.ecard.messagecenter.module.organization.vo.OrganizationNodeVO;
+import com.csg.ecard.messagecenter.module.organization.vo.OrganizationResolvedVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -32,5 +39,42 @@ public class OrganizationController {
     @Operation(summary = "查询组织树")
     public ApiResult<List<OrganizationNodeVO>> tree() {
         return ApiResult.success(organizationService.tree());
+    }
+
+    /**
+     * 按父节点懒加载一层组织。
+     *
+     * @param parentOrgId 父组织ID，不传时查询当前可见范围根节点
+     * @return 单层组织节点
+     */
+    @GetMapping("/tree/children")
+    @Operation(summary = "按父节点查询直接子组织")
+    public ApiResult<List<OrganizationLazyNodeVO>> children(
+            @RequestParam(required = false) String parentOrgId) {
+        return ApiResult.success(organizationService.children(parentOrgId));
+    }
+
+    /**
+     * 批量解析组织及祖先路径，用于编辑回显。
+     *
+     * @param request 组织ID列表
+     * @return 组织及祖先路径
+     */
+    @PostMapping("/tree/resolve")
+    @Operation(summary = "批量解析组织及祖先路径")
+    public ApiResult<List<OrganizationResolvedVO>> resolve(@Valid @RequestBody OrganizationResolveDTO request) {
+        return ApiResult.success(organizationService.resolve(request));
+    }
+
+    /**
+     * 按组织名称或编码搜索全部可见组织。
+     *
+     * @param keyword 搜索关键词
+     * @return 匹配组织及祖先路径
+     */
+    @GetMapping("/search")
+    @Operation(summary = "搜索组织")
+    public ApiResult<List<OrganizationResolvedVO>> search(@RequestParam(required = false) String keyword) {
+        return ApiResult.success(organizationService.search(keyword));
     }
 }

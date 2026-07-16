@@ -111,7 +111,7 @@ public class SceneParamServiceImpl implements SceneParamService {
         if (Boolean.TRUE.equals(usage.getUsed())) {
             throw new BizException(ErrorCode.DELETE_NOT_ALLOWED, "参数已被引用，不能删除");
         }
-        msgSceneParamMapper.deleteById(paramId);
+        msgSceneParamMapper.logicalDeleteById(paramId);
     }
 
     @Override

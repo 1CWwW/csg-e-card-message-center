@@ -10,9 +10,9 @@ CREATE TABLE msg_scene
     create_time TIMESTAMP,
     update_by   VARCHAR(64),
     update_time TIMESTAMP,
-    deleted     INT DEFAULT 0 NOT NULL,
+    deleted     BIGINT DEFAULT 0 NOT NULL,
     CONSTRAINT pk_msg_scene PRIMARY KEY (id),
-    CONSTRAINT uk_msg_scene_code UNIQUE (scene_code)
+    CONSTRAINT uk_msg_scene_code_deleted UNIQUE (scene_code, deleted)
 );
 
 COMMENT
@@ -38,7 +38,7 @@ ON COLUMN msg_scene.update_by IS '更新人';
 COMMENT
 ON COLUMN msg_scene.update_time IS '更新时间';
 COMMENT
-ON COLUMN msg_scene.deleted IS '逻辑删除标记，0正常，1删除';
+ON COLUMN msg_scene.deleted IS '逻辑删除标记，0正常，非0删除；删除时保存场景ID以支持同编码重建';
 
 CREATE INDEX idx_msg_scene_module_status ON msg_scene (module, status);
 CREATE INDEX idx_msg_scene_deleted_create_time ON msg_scene (deleted, create_time);
@@ -56,9 +56,9 @@ CREATE TABLE msg_scene_param
     create_time TIMESTAMP,
     update_by   VARCHAR(64),
     update_time TIMESTAMP,
-    deleted     INT DEFAULT 0 NOT NULL,
+    deleted     BIGINT DEFAULT 0 NOT NULL,
     CONSTRAINT pk_msg_scene_param PRIMARY KEY (id),
-    CONSTRAINT uk_msg_scene_param_name UNIQUE (scene_id, param_name)
+    CONSTRAINT uk_msg_scene_param_name_deleted UNIQUE (scene_id, param_name, deleted)
 );
 
 COMMENT
@@ -86,7 +86,7 @@ ON COLUMN msg_scene_param.update_by IS '更新人';
 COMMENT
 ON COLUMN msg_scene_param.update_time IS '更新时间';
 COMMENT
-ON COLUMN msg_scene_param.deleted IS '逻辑删除标记，0正常，1删除';
+ON COLUMN msg_scene_param.deleted IS '逻辑删除标记，0正常，非0删除；删除时保存参数ID以支持同名参数重建';
 
 CREATE INDEX idx_msg_scene_param_scene_id ON msg_scene_param (scene_id);
 CREATE INDEX idx_msg_scene_param_scene_sort ON msg_scene_param (scene_id, sort_order);

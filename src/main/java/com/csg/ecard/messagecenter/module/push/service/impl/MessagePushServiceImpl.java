@@ -1660,7 +1660,12 @@ public class MessagePushServiceImpl implements MessagePushService {
             request.setSceneCode(request.getRegisterCode());
         }
         request.setSceneCode(request.getSceneCode().trim());
-        request.setUserId(request.getUserId().trim());
+        String userId = trimToNull(request.getUserId());
+        String elinkUserId = trimToNull(request.getElinkUserId());
+        if (!StringUtils.hasText(userId) && !StringUtils.hasText(elinkUserId)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "userId与elinkUserId至少传一个");
+        }
+        request.setUserId(StringUtils.hasText(userId) ? userId : elinkUserId);
         request.setReceiveCorpId(trimToNull(request.getReceiveCorpId()));
         if (!StringUtils.hasText(request.getUserOrgId())) {
             request.setUserOrgId(request.getReceiveCorpId());
@@ -1673,7 +1678,7 @@ public class MessagePushServiceImpl implements MessagePushService {
         request.setUrl(trimToNull(request.getUrl()));
         request.setContent(trimToNull(request.getContent()));
         request.setSenderUserId(trimToNull(request.getSenderUserId()));
-        request.setElinkUserId(trimToNull(request.getElinkUserId()));
+        request.setElinkUserId(elinkUserId);
         request.setUserPhone(trimToNull(request.getUserPhone()));
         request.setUserEmail(trimToNull(request.getUserEmail()));
         request.setEmailId(trimToNull(request.getEmailId()));

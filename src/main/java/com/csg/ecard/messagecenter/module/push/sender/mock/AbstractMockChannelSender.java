@@ -106,7 +106,7 @@ public abstract class AbstractMockChannelSender implements BatchChannelSender {
         } else if (ChannelType.EMAIL.getCode().equals(type)) {
             value = firstText(info == null ? null : info.getReceiveEmail(), request == null ? null : request.getUserEmail());
         } else if (ChannelType.ELINK.getCode().equals(type)) {
-            value = firstText(info == null ? null : info.getElinkUserid(), request == null ? null : request.getElinkUserId());
+            value = firstText(info == null ? null : info.getReceiveUserId(), request == null ? null : request.getUserId());
         } else {
             value = firstText(info == null ? null : info.getReceiveUserId(), request == null ? null : request.getUserId());
         }

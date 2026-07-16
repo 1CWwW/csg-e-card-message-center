@@ -2,67 +2,124 @@ package com.csg.ecard.messagecenter.infrastructure.organization;
 
 import com.csg.ecard.messagecenter.common.enums.ErrorCode;
 import com.csg.ecard.messagecenter.common.exception.BizException;
+import feign.FeignException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.web.client.ClientHttpRequestFactories;
-import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
-import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 内网组织接口实现。
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 @ConditionalOnProperty(prefix = "app.organization", name = "mode", havingValue = "remote")
 public class RemoteOrganizationProvider extends AbstractOrganizationProvider {
 
+    private final JadpOrganizationClient jadpOrganizationClient;
     private final OrganizationProperties organizationProperties;
-    private final RestClient restClient;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public RemoteOrganizationProvider(OrganizationProperties organizationProperties, RestClient.Builder builder) {
-        this.organizationProperties = organizationProperties;
-        this.restClient = builder
-                .requestFactory(requestFactory(organizationProperties))
-                .build();
-    }
+    private volatile CachedOrganizations cachedOrganizations;
 
     @Override
     public List<OrganizationNode> tree() {
-        return buildTree(loadAll());
+        return buildTree(visibleNodes(loadIndex().all()));
+    }
+
+    @Override
+    public List<OrganizationNode> children(String parentOrgId) {
+        return loadIndex().children(parentOrgId);
+    }
+
+    @Override
+    public Set<String> parentOrgIdsWithChildren(Collection<String> orgIds) {
+        return loadIndex().parentOrgIdsWithChildren(orgIds);
+    }
+
+    @Override
+    public List<OrganizationPath> resolve(Collection<String> orgIds) {
+        return loadIndex().resolve(orgIds);
+    }
+
+    @Override
+    public List<OrganizationPath> search(String keyword, int limit, String scopeOrgId) {
+        return loadIndex().search(keyword, limit, scopeOrgId);
+    }
+
+    @Override
+    public boolean isWithinScope(String orgId, String scopeOrgId) {
+        return loadIndex().isWithinScope(orgId, scopeOrgId);
     }
 
     @Override
     public List<String> resolveUnitPath(String orgId) {
-        return resolveUnitPath(orgId, loadAll(), 50);
+        return resolveUnitPath(orgId, loadIndex().all(), 50);
     }
 
-    private List<OrganizationNode> loadAll() {
-        OrganizationProperties.Remote remote = organizationProperties.getRemote();
-        if (!StringUtils.hasText(remote.getBaseUrl())) {
-            throw new BizException(ErrorCode.EXTERNAL_SERVICE_ERROR, "组织服务地址未配置");
+    private OrganizationIndex loadIndex() {
+        long now = System.nanoTime();
+        CachedOrganizations current = cachedOrganizations;
+        if (current != null && current.expiresAtNanos() > now) {
+            return current.index();
         }
-        String url = buildUrl(remote, "/v1/organization/all/");
+
+        synchronized (this) {
+            now = System.nanoTime();
+            current = cachedOrganizations;
+            if (current != null && current.expiresAtNanos() > now) {
+                return current.index();
+            }
+
+            boolean refreshingExistingSnapshot = current != null;
+            List<OrganizationNode> nodes = queryAll();
+            OrganizationIndex index = new OrganizationIndex(nodes);
+            if (cacheEnabled()) {
+                cachedOrganizations = new CachedOrganizations(
+                        index,
+                        now + organizationProperties.getRemote().getCacheTtl().toNanos()
+                );
+            }
+            if (refreshingExistingSnapshot) {
+                eventPublisher.publishEvent(OrganizationChangedEvent.fullSyncEvent());
+            }
+            return index;
+        }
+    }
+
+    private List<OrganizationNode> queryAll() {
         try {
-            RemoteOrganizationDTO[] response = restClient.get()
-                    .uri(url)
-                    .retrieve()
-                    .body(RemoteOrganizationDTO[].class);
-            if (response == null || response.length == 0) {
+            List<RemoteOrganizationDTO> response = jadpOrganizationClient.queryAll();
+            if (response == null || response.isEmpty()) {
                 return List.of();
             }
-            return flatten(Arrays.asList(response));
-        } catch (RestClientException ex) {
-            log.warn("Organization remote query failed. url={}, cause={}", url, ex.getMessage());
+            return flatten(response);
+        } catch (FeignException ex) {
+            log.warn("Organization remote query failed. status={}, cause={}", ex.status(), ex.getMessage());
             throw new BizException(ErrorCode.EXTERNAL_SERVICE_ERROR, "组织服务调用失败");
         }
+    }
+
+    private boolean cacheEnabled() {
+        return organizationProperties.getRemote().getCacheTtl() != null
+                && !organizationProperties.getRemote().getCacheTtl().isZero()
+                && !organizationProperties.getRemote().getCacheTtl().isNegative();
+    }
+
+    /**
+     * 停用组织仅不在组织树中展示，仍保留在单位路径解析中以兼容已有单位配置。
+     */
+    private Collection<OrganizationNode> visibleNodes(Collection<OrganizationNode> nodes) {
+        return nodes.stream()
+                .filter(node -> !Integer.valueOf(0).equals(node.getState()))
+                .toList();
     }
 
     private List<OrganizationNode> flatten(List<RemoteOrganizationDTO> source) {
@@ -92,38 +149,6 @@ public class RemoteOrganizationProvider extends AbstractOrganizationProvider {
         return node;
     }
 
-    private String buildUrl(OrganizationProperties.Remote remote, String path) {
-        String baseUrl = trimTrailingSlash(remote.getBaseUrl());
-        String contextPath = trimSlashes(remote.getContextPath());
-        return contextPath == null ? baseUrl + path : baseUrl + "/" + contextPath + path;
-    }
-
-    private String trimTrailingSlash(String value) {
-        String result = value.trim();
-        while (result.endsWith("/")) {
-            result = result.substring(0, result.length() - 1);
-        }
-        return result;
-    }
-
-    private String trimSlashes(String value) {
-        String result = trimToNull(value);
-        if (result == null) {
-            return null;
-        }
-        while (result.startsWith("/")) {
-            result = result.substring(1);
-        }
-        while (result.endsWith("/")) {
-            result = result.substring(0, result.length() - 1);
-        }
-        return result.isEmpty() ? null : result;
-    }
-
-    private ClientHttpRequestFactory requestFactory(OrganizationProperties properties) {
-        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.DEFAULTS
-                .withConnectTimeout(properties.getRemote().getConnectTimeout())
-                .withReadTimeout(properties.getRemote().getReadTimeout());
-        return ClientHttpRequestFactories.get(settings);
+    private record CachedOrganizations(OrganizationIndex index, long expiresAtNanos) {
     }
 }

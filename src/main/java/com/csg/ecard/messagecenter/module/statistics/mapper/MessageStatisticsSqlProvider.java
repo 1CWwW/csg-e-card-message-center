@@ -135,7 +135,7 @@ public class MessageStatisticsSqlProvider {
 
                 FROM msg_record r
                 LEFT JOIN msg_channel c ON c.id = r.channel_id
-                LEFT JOIN msg_scene s ON s.scene_code = r.scene_code
+                LEFT JOIN msg_scene s ON s.scene_code = r.scene_code AND s.deleted = 0
                 LEFT JOIN msg_template t ON t.id = r.template_id
                 WHERE r.deleted = 0
                 AND r.send_time IS NOT NULL

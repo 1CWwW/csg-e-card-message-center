@@ -1,7 +1,7 @@
-package com.csg.ecard.messagecenter.module.push.controller;
+package com.csg.ecard.messagecenter.module.push.api;
 
-import com.csg.ecard.messagecenter.common.result.ApiResult;
 import com.csg.ecard.messagecenter.common.exception.BizException;
+import com.csg.ecard.messagecenter.common.result.ApiResult;
 import com.csg.ecard.messagecenter.module.push.dto.GroupPushDTO;
 import com.csg.ecard.messagecenter.module.push.dto.MassPushDTO;
 import com.csg.ecard.messagecenter.module.push.dto.SyncPushDTO;
@@ -16,11 +16,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * 消息推送接口。
