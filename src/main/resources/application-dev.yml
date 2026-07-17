@@ -64,10 +64,12 @@ xxl:
       addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://e-card-e-xxl-job-service:8086/e-xxl-job-admin}
     accessToken: ${XXL_JOB_ACCESS_TOKEN:ecard_xxl_job_token}
     executor:
-      appname: ${XXL_JOB_EXECUTOR_APPNAME:${spring.application.name}}
+      appname: ${XXL_JOB_EXECUTOR_APPNAME:public-xxzx-service}
       address: ${XXL_JOB_EXECUTOR_ADDRESS:}
       ip: ${XXL_JOB_EXECUTOR_IP:}
-      port: ${XXL_JOB_EXECUTOR_PORT:9999}
+      port: ${XXL_JOB_EXECUTOR_PORT:0}
+      userName: ${XXL_JOB_EXECUTOR_USERNAME:admin}
+      password: ${XXL_JOB_EXECUTOR_PASSWORD:decrypt(8117E2B52EDDDCA7EB4E6614AF206B27)}
       logpath: ${XXL_JOB_EXECUTOR_LOGPATH:/logs/xxl-job/}
       logretentiondays: ${XXL_JOB_EXECUTOR_LOGRETENTIONDAYS:30}
 
