@@ -20,7 +20,7 @@ import java.util.Set;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "app.organization", name = "mode", havingValue = "remote")
+@ConditionalOnProperty(prefix = "app.organization", name = "mode", havingValue = "remote", matchIfMissing = true)
 public class RemoteOrganizationProvider extends AbstractOrganizationProvider {
 
     private final JadpOrganizationClient jadpOrganizationClient;

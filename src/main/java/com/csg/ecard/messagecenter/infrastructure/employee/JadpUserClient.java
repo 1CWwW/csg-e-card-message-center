@@ -11,9 +11,9 @@ import java.util.List;
  */
 @FeignClient(
         contextId = "jadpUserClient",
-        name = "${public.jadp.service:public-jadp-service}",
-        path = "${app.employee.remote.context-path:${public.jadp.service.contextPath:public-jadp-api}}",
-        url = "${app.employee.remote.base-url:${public.jadp.service.url:}}"
+        name = "${public.jadp.service:e-jadp-service}",
+        path = "${public.jadp.service.contextPath:e-jadp}",
+        url = "${public.jadp.service.url:}"
 )
 public interface JadpUserClient {
 

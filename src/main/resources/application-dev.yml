@@ -113,6 +113,8 @@ app:
       enabled: ${MESSAGE_SEND_IN_APP_ENABLED:false}
       notification-url: ${MESSAGE_SEND_IN_APP_NOTIFICATION_URL:}
 
-public.jadp.service: ${PUBLIC_JADP_SERVICE:e-jadp-service}
-public.jadp.service.contextPath: ${PUBLIC_JADP_SERVICE_CONTEXT_PATH:e-jadp}
-public.jadp.service.url: ${PUBLIC_JADP_SERVICE_URL:}
+public:
+  jadp:
+    service: ${PUBLIC_JADP_SERVICE:e-jadp-service}
+    service.contextPath: ${PUBLIC_JADP_SERVICE_CONTEXT_PATH:e-jadp}
+    service.url: ${PUBLIC_JADP_SERVICE_URL:}

@@ -7,7 +7,7 @@ spring:
   application:
     name: e-msg-service
   profiles:
-    active: test
+    active: dev1,local2
   jackson:
     time-zone: GMT+8
     date-format: yyyy-MM-dd HH:mm:ss

@@ -72,16 +72,6 @@ xxl:
       logretentiondays: ${XXL_JOB_EXECUTOR_LOGRETENTIONDAYS:30}
 
 app:
-  employee:
-    mode: ${APP_EMPLOYEE_MODE:remote}
-    remote:
-      base-url: ${APP_EMPLOYEE_REMOTE_BASE_URL:${PUBLIC_JADP_SERVICE_URL:}}
-      context-path: ${APP_EMPLOYEE_REMOTE_CONTEXT_PATH:${PUBLIC_JADP_SERVICE_CONTEXT_PATH:e-jadp}}
-  organization:
-    mode: ${APP_ORGANIZATION_MODE:remote}
-    remote:
-      base-url: ${APP_ORGANIZATION_REMOTE_BASE_URL:${PUBLIC_JADP_SERVICE_URL:}}
-      context-path: ${APP_ORGANIZATION_REMOTE_CONTEXT_PATH:${PUBLIC_JADP_SERVICE_CONTEXT_PATH:e-jadp}}
   message-send:
     sms:
       enabled: ${MESSAGE_SEND_SMS_ENABLED:false}
@@ -111,6 +101,8 @@ app:
       enabled: ${MESSAGE_SEND_IN_APP_ENABLED:false}
       notification-url: ${MESSAGE_SEND_IN_APP_NOTIFICATION_URL:}
 
-public.jadp.service: ${PUBLIC_JADP_SERVICE:e-jadp-service}
-public.jadp.service.contextPath: ${PUBLIC_JADP_SERVICE_CONTEXT_PATH:e-jadp}
-public.jadp.service.url: ${PUBLIC_JADP_SERVICE_URL:}
+public:
+  jadp:
+    service: e-jadp-service
+    service.contextPath: e-jadp
+    service.url:

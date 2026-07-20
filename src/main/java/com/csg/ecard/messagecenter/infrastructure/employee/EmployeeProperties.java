@@ -19,7 +19,7 @@ public class EmployeeProperties {
     /**
      * 员工来源：preset 本地预设；remote 内网员工接口。
      */
-    private String mode = "preset";
+    private String mode = "remote";
 
     private Remote remote = new Remote();
 

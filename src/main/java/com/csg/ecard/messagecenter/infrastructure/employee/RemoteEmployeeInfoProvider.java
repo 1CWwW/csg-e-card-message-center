@@ -21,7 +21,7 @@ import java.util.Map;
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(prefix = "app.employee", name = "mode", havingValue = "remote")
+@ConditionalOnProperty(prefix = "app.employee", name = "mode", havingValue = "remote", matchIfMissing = true)
 public class RemoteEmployeeInfoProvider implements EmployeeInfoProvider {
 
     private final JadpUserClient jadpUserClient;

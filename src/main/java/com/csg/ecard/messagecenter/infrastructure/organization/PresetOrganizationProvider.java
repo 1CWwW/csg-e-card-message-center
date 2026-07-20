@@ -16,7 +16,7 @@ import java.util.Set;
  */
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "app.organization", name = "mode", havingValue = "preset", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "app.organization", name = "mode", havingValue = "preset")
 public class PresetOrganizationProvider extends AbstractOrganizationProvider {
 
     private final LocalUnitPathProperties localUnitPathProperties;

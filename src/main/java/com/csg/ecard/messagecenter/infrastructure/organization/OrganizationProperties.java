@@ -21,7 +21,7 @@ public class OrganizationProperties {
     /**
      * 组织来源：preset 本地预设；remote 内网组织接口。
      */
-    private String mode = "preset";
+    private String mode = "remote";
 
     private Preset preset = new Preset();
 

@@ -19,7 +19,7 @@ import java.util.Set;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "app.employee", name = "mode", havingValue = "preset", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "app.employee", name = "mode", havingValue = "preset")
 public class DefaultEmployeeInfoProvider implements EmployeeInfoProvider {
 
     private final LocalUnitPathProperties localUnitPathProperties;
