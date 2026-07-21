@@ -22,7 +22,8 @@ public class GroupPushItemDTO {
     private String sceneCode;
 
     @NotNull(message = "sceneParams不能为空")
-    @Schema(description = "场景参数", requiredMode = Schema.RequiredMode.REQUIRED)
+    @Schema(description = "场景参数；BOOLEAN参数必须传JSON布尔值，不能传字符串",
+            example = "{\"isPark\":true}", requiredMode = Schema.RequiredMode.REQUIRED)
     private Map<String, Object> sceneParams;
 
     @Valid

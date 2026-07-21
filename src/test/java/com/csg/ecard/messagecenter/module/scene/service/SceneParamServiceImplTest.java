@@ -156,6 +156,34 @@ class SceneParamServiceImplTest {
     }
 
     @Test
+    void shouldAllowBooleanParamCreateAndUpdate() {
+        when(msgSceneMapper.selectById(1L)).thenReturn(scene(1L));
+        when(msgSceneParamMapper.selectMaxSortOrder(1L)).thenReturn(0);
+        when(msgSceneParamMapper.selectCount(any())).thenReturn(0L);
+        when(msgSceneParamMapper.insert(any(MsgSceneParam.class))).thenReturn(1);
+        SceneParamCreateDTO createRequest = createRequest("isPark");
+        createRequest.setParamType(ParamType.BOOLEAN.getCode());
+
+        SceneParamVO created = sceneParamService.create(1L, createRequest);
+
+        assertThat(created.getParamType()).isEqualTo(ParamType.BOOLEAN.getCode());
+        assertThat(created.getParamTypeDesc()).isEqualTo("布尔值");
+
+        MsgSceneParam existed = param(1L, 1L, "isPark");
+        existed.setParamType(ParamType.BOOLEAN.getCode());
+        when(msgSceneParamMapper.selectById(1L)).thenReturn(existed);
+        when(sceneParamUsageChecker.checkUsage(existed)).thenReturn(SceneParamUsageVO.unused());
+        when(msgSceneParamMapper.updateById(any(MsgSceneParam.class))).thenReturn(1);
+        SceneParamUpdateDTO updateRequest = updateRequest("isPark");
+        updateRequest.setParamType(ParamType.BOOLEAN.getCode());
+
+        SceneParamVO updated = sceneParamService.update(1L, 1L, updateRequest);
+
+        assertThat(updated.getParamType()).isEqualTo(ParamType.BOOLEAN.getCode());
+        assertThat(updated.getParamTypeDesc()).isEqualTo("布尔值");
+    }
+
+    @Test
     void shouldRejectInvalidIsRequired() {
         when(msgSceneMapper.selectById(1L)).thenReturn(scene(1L));
         SceneParamCreateDTO request = createRequest("merchantName");

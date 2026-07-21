@@ -24,7 +24,8 @@ public class PushMessageDataDTO {
     @Schema(description = "接收手机号列表，短信特殊场景使用")
     private List<String> receivePhones;
 
-    @Schema(description = "模板填充数据")
+    @Schema(description = "模板填充数据；BOOLEAN参数必须传JSON布尔值，不能传字符串",
+            example = "{\"isPark\":true}")
     private Map<String, Object> sceneParams;
 
     @Schema(description = "跳转链接")

@@ -39,7 +39,8 @@ public class MassPushDTO {
     @Schema(description = "场景编码；为空时使用registerCode")
     private String sceneCode;
 
-    @Schema(description = "场景参数；兼容旧请求，优先级低于data.sceneParams")
+    @Schema(description = "场景参数；BOOLEAN参数必须传JSON布尔值，不能传字符串；"
+            + "兼容旧请求，优先级低于data.sceneParams", example = "{\"isPark\":true}")
     private Map<String, Object> sceneParams;
 
     @Valid

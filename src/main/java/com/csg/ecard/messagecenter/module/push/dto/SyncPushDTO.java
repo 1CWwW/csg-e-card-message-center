@@ -30,7 +30,8 @@ public class SyncPushDTO {
     private String receiveCorpId;
 
     @NotNull(message = "sceneParams不能为空")
-    @Schema(description = "场景参数", requiredMode = Schema.RequiredMode.REQUIRED)
+    @Schema(description = "场景参数；BOOLEAN参数必须传JSON布尔值，不能传字符串",
+            example = "{\"isPark\":true}", requiredMode = Schema.RequiredMode.REQUIRED)
     private Map<String, Object> sceneParams;
 
     @Schema(description = "业务用户ID；与elinkUserId至少传一个")

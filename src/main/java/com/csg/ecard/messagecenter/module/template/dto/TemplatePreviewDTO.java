@@ -28,6 +28,7 @@ public class TemplatePreviewDTO {
     @Schema(description = "Blockly结构版本，workspace非空时默认1")
     private Integer schemaVersion = BlocklyJsonValidator.SUPPORTED_SCHEMA_VERSION;
 
-    @Schema(description = "以场景参数名为key的示例值")
+    @Schema(description = "以场景参数名为key的JSON示例值；BOOLEAN参数必须传true或false，不能传字符串",
+            example = "{\"isPark\":true}")
     private Map<String, JsonNode> values = new LinkedHashMap<>();
 }

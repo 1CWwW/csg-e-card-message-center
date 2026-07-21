@@ -29,7 +29,9 @@ public class SceneParamVO {
     @Schema(description = "参数标签")
     private String paramLabel;
 
-    @Schema(description = "参数类型")
+    @Schema(description = "参数类型",
+            allowableValues = {"STRING", "NUMBER", "BOOLEAN", "TIME",
+                    "STRING_ARRAY", "NUMBER_ARRAY", "OBJECT_ARRAY"})
     private String paramType;
 
     @Schema(description = "参数类型描述")

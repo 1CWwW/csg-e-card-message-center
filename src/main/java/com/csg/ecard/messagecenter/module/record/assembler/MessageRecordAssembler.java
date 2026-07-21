@@ -252,6 +252,9 @@ public class MessageRecordAssembler {
     }
 
     private String inferParamType(Object value) {
+        if (value instanceof Boolean) {
+            return ParamType.BOOLEAN.getCode();
+        }
         if (value instanceof Number) {
             return ParamType.NUMBER.getCode();
         }

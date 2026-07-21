@@ -622,8 +622,8 @@ public class MessagePushServiceImpl implements MessagePushService {
         MsgScene scene = requireEnabledScene(request.getSceneCode());
         List<MsgSceneParam> sceneParams = loadSceneParams(scene.getId());
         Map<String, Object> rawSceneParams = safeSceneParams(request.getSceneParams());
-        Map<String, JsonNode> values = StringUtils.hasText(request.getContent())
-                ? toJsonValues(rawSceneParams) : validateSceneParams(sceneParams, rawSceneParams);
+        Map<String, JsonNode> values = validateSceneParams(
+                sceneParams, rawSceneParams, !StringUtils.hasText(request.getContent()));
         String serializedSceneParams = serializeSceneParams(rawSceneParams);
         Map<Long, MsgSceneParam> paramMap = sceneParams.stream()
                 .collect(Collectors.toMap(MsgSceneParam::getId, item -> item));
@@ -1455,7 +1455,8 @@ public class MessagePushServiceImpl implements MessagePushService {
     }
 
     private Map<String, JsonNode> validateSceneParams(List<MsgSceneParam> definitions,
-                                                      Map<String, Object> rawValues) {
+                                                      Map<String, Object> rawValues,
+                                                      boolean requireAllRequired) {
         Map<String, JsonNode> values = new LinkedHashMap<>();
         rawValues.forEach((key, value) -> values.put(key, objectMapper.valueToTree(value)));
         Set<String> definedNames = definitions.stream()
@@ -1466,36 +1467,25 @@ public class MessagePushServiceImpl implements MessagePushService {
                 throw new BizException(ErrorCode.PARAM_ERROR, "场景参数未定义：" + providedName);
             }
         }
-        List<String> missingRequiredNames = definitions.stream()
-                .filter(item -> Integer.valueOf(1).equals(item.getIsRequired()))
-                .filter(item -> isMissing(values, item.getParamName()))
-                .map(MsgSceneParam::getParamName)
-                .toList();
-        if (!missingRequiredNames.isEmpty()) {
-            throw MessagePushException.badRequest(
-                    "缺少必填参数：" + String.join(", ", missingRequiredNames));
+        if (requireAllRequired) {
+            List<String> missingRequiredNames = definitions.stream()
+                    .filter(item -> Integer.valueOf(1).equals(item.getIsRequired()))
+                    .filter(item -> !values.containsKey(item.getParamName()))
+                    .map(MsgSceneParam::getParamName)
+                    .toList();
+            if (!missingRequiredNames.isEmpty()) {
+                throw MessagePushException.badRequest(
+                        "缺少必填参数：" + String.join(", ", missingRequiredNames));
+            }
         }
         for (MsgSceneParam definition : definitions) {
             String name = definition.getParamName();
-            sceneParamValueValidator.validateAndFormat(
-                    definition, values.get(name), values.containsKey(name));
+            if (requireAllRequired || values.containsKey(name)) {
+                sceneParamValueValidator.validateAndFormat(
+                        definition, values.get(name), values.containsKey(name));
+            }
         }
         return values;
-    }
-
-    private Map<String, JsonNode> toJsonValues(Map<String, Object> rawValues) {
-        Map<String, JsonNode> values = new LinkedHashMap<>();
-        rawValues.forEach((key, value) -> values.put(key, objectMapper.valueToTree(value)));
-        return values;
-    }
-
-    private boolean isMissing(Map<String, JsonNode> values, String name) {
-        JsonNode value = values.get(name);
-        return !values.containsKey(name)
-                || value == null
-                || value.isNull()
-                || (value.isTextual() && value.textValue().isEmpty())
-                || (value.isArray() && value.isEmpty());
     }
 
     private void validateRecipient(ChannelType channelType, SyncPushDTO request) {

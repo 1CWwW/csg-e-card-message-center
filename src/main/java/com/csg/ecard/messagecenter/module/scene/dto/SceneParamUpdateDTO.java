@@ -26,7 +26,9 @@ public class SceneParamUpdateDTO {
     private String paramLabel;
 
     @NotBlank(message = "参数类型不能为空")
-    @Schema(description = "参数类型", example = "STRING")
+    @Schema(description = "参数类型", example = "BOOLEAN",
+            allowableValues = {"STRING", "NUMBER", "BOOLEAN", "TIME",
+                    "STRING_ARRAY", "NUMBER_ARRAY", "OBJECT_ARRAY"})
     private String paramType;
 
     @Schema(description = "排序号", example = "1")

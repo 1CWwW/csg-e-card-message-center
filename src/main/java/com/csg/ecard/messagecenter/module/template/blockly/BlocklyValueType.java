@@ -27,6 +27,7 @@ public enum BlocklyValueType {
         return switch (ParamType.fromCode(paramType)) {
             case STRING -> STRING;
             case NUMBER -> NUMBER;
+            case BOOLEAN -> BOOLEAN;
             case TIME -> TIME;
             case STRING_ARRAY -> STRING_ARRAY;
             case NUMBER_ARRAY -> NUMBER_ARRAY;

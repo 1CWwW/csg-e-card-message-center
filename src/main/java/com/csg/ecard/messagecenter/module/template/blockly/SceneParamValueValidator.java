@@ -34,12 +34,16 @@ public class SceneParamValueValidator {
      */
     public String validateAndFormat(MsgSceneParam param, JsonNode value, boolean provided) {
         ParamType type = requireParamType(param);
-        if (!provided || value == null || value.isNull()) {
+        if (!provided) {
             return missingValue(param);
+        }
+        if (value == null || value.isNull()) {
+            return nullValue(param);
         }
         return switch (type) {
             case STRING -> formatString(param, value);
             case NUMBER -> formatNumber(param, value);
+            case BOOLEAN -> formatBoolean(param, value);
             case TIME -> formatTime(param, value);
             case STRING_ARRAY -> formatStringArray(param, value);
             case NUMBER_ARRAY -> formatNumberArray(param, value);
@@ -53,7 +57,7 @@ public class SceneParamValueValidator {
         }
         String text = value.textValue();
         if (text.isEmpty() && isRequired(param)) {
-            throw requiredError(param);
+            throw emptyValueError(param);
         }
         return text;
     }
@@ -63,6 +67,13 @@ public class SceneParamValueValidator {
             throw typeError(param, "JSON数字");
         }
         return value.decimalValue().toPlainString();
+    }
+
+    private String formatBoolean(MsgSceneParam param, JsonNode value) {
+        if (!value.isBoolean()) {
+            throw typeError(param, "JSON布尔值");
+        }
+        return Boolean.toString(value.booleanValue());
     }
 
     private String formatTime(MsgSceneParam param, JsonNode value) {
@@ -147,14 +158,22 @@ public class SceneParamValueValidator {
 
     private String missingValue(MsgSceneParam param) {
         if (isRequired(param)) {
-            throw requiredError(param);
+            throw new BizException(ErrorCode.PARAM_ERROR,
+                    "必填参数未提供：" + param.getParamName());
+        }
+        return "";
+    }
+
+    private String nullValue(MsgSceneParam param) {
+        if (isRequired(param)) {
+            throw emptyValueError(param);
         }
         return "";
     }
 
     private String emptyArray(MsgSceneParam param) {
         if (isRequired(param)) {
-            throw requiredError(param);
+            throw emptyValueError(param);
         }
         return "";
     }
@@ -163,9 +182,9 @@ public class SceneParamValueValidator {
         return Integer.valueOf(REQUIRED).equals(param.getIsRequired());
     }
 
-    private BizException requiredError(MsgSceneParam param) {
+    private BizException emptyValueError(MsgSceneParam param) {
         return new BizException(ErrorCode.PARAM_ERROR,
-                "必填参数未提供或值为空：" + param.getParamName());
+                "必填参数值为空：" + param.getParamName());
     }
 
     private BizException typeError(MsgSceneParam param, String expected) {

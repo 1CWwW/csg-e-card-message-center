@@ -20,6 +20,9 @@ public class TemplateToolboxParamVO {
 
     private String paramLabel;
 
+    @Schema(description = "参数类型",
+            allowableValues = {"STRING", "NUMBER", "BOOLEAN", "TIME",
+                    "STRING_ARRAY", "NUMBER_ARRAY", "OBJECT_ARRAY"})
     private String paramType;
 
     private String paramTypeDesc;

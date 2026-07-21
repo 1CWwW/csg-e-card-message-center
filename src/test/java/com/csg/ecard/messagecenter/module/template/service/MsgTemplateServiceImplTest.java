@@ -101,6 +101,7 @@ class MsgTemplateServiceImplTest {
         expressionParams.put(9L, optionalParam(9L, "numberItems", ParamType.NUMBER_ARRAY));
         expressionParams.put(10L, param(10L, "prefix", ParamType.STRING));
         expressionParams.put(11L, optionalParam(11L, "wallets", ParamType.OBJECT_ARRAY));
+        expressionParams.put(12L, param(12L, "isPark", ParamType.BOOLEAN));
     }
 
     @Test
@@ -410,6 +411,34 @@ class MsgTemplateServiceImplTest {
     }
 
     @Test
+    void shouldRenderGraphControlsIfWithDirectBooleanParam() {
+        ObjectNode isPark = paramBlock(12L, "isPark", ParamType.BOOLEAN);
+        isPark.put("id", "is-park");
+        ObjectNode thenText = linkedText("then", "正确分支");
+        ObjectNode elseText = linkedText("else", "错误分支");
+        ObjectNode controlsIf = objectMapper.createObjectNode();
+        controlsIf.put("id", "if1");
+        controlsIf.put("type", BlocklyBlockTypes.CONTROLS_IF);
+
+        ObjectNode workspace = graphWorkspace("if1", isPark, thenText, elseText, controlsIf);
+        workspace.putObject("templateBranches")
+                .putObject("if1")
+                .put("conditionBlockId", "is-park")
+                .put("thenBlockId", "then")
+                .put("elseBlockId", "else");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L, expressionParams,
+                Map.of("isPark", objectMapper.valueToTree(true))).renderedContent())
+                .isEqualTo("正确分支");
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L, expressionParams,
+                Map.of("isPark", objectMapper.valueToTree(false))).renderedContent())
+                .isEqualTo("错误分支");
+    }
+
+    @Test
     void shouldRenderGraphForEachBodyFromTailLoopItemFieldChain() {
         ObjectNode wallets = paramBlock(11L, "wallets", ParamType.OBJECT_ARRAY);
         wallets.put("id", "wallets");
@@ -679,6 +708,80 @@ class MsgTemplateServiceImplTest {
         assertThat(render(elseIf, values).renderedContent()).isEqualTo("DO1");
         assertThat(render(elseOnly, values).renderedContent()).isEqualTo("ELSE");
         assertThat(render(noElse, values).renderedContent()).isEmpty();
+    }
+
+    @Test
+    void shouldRenderRequiredBooleanConditionAndRejectStringValue() throws Exception {
+        ObjectNode conditional = controlsIf(
+                paramBlock(12L, "isPark", ParamType.BOOLEAN), textBlock("正确分支"));
+        addElse(conditional, textBlock("错误分支"));
+
+        assertThat(render(conditional,
+                Map.of("isPark", objectMapper.valueToTree(true))).renderedContent())
+                .isEqualTo("正确分支");
+        assertThat(render(conditional,
+                Map.of("isPark", objectMapper.valueToTree(false))).renderedContent())
+                .isEqualTo("错误分支");
+        assertThatThrownBy(() -> render(conditional,
+                Map.of("isPark", objectMapper.valueToTree("true"))))
+                .isInstanceOf(BizException.class)
+                .hasMessage("参数isPark必须是JSON布尔值");
+        assertThatThrownBy(() -> render(conditional, Map.of()))
+                .isInstanceOf(BizException.class)
+                .hasMessage("必填参数未提供：isPark");
+        Map<String, JsonNode> nullValue = new LinkedHashMap<>();
+        nullValue.put("isPark", objectMapper.nullNode());
+        assertThatThrownBy(() -> render(conditional, nullValue))
+                .isInstanceOf(BizException.class)
+                .hasMessage("必填参数值为空：isPark");
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("isPark", 1 > 0);
+        assertThat(objectMapper.writeValueAsString(params)).isEqualTo("{\"isPark\":true}");
+    }
+
+    @Test
+    void shouldAllowBooleanParamConnectedDirectlyToAndOrNot() {
+        ObjectNode booleanParam = paramBlock(12L, "isPark", ParamType.BOOLEAN);
+        ObjectNode and = binary(BlocklyBlockTypes.LOGIC_OPERATION, "AND",
+                "A", booleanParam,
+                "B", paramBlock(12L, "isPark", ParamType.BOOLEAN));
+        ObjectNode or = binary(BlocklyBlockTypes.LOGIC_OPERATION, "OR",
+                "A", paramBlock(12L, "isPark", ParamType.BOOLEAN),
+                "B", paramBlock(12L, "isPark", ParamType.BOOLEAN));
+        ObjectNode not = unary(BlocklyBlockTypes.LOGIC_NEGATE, "BOOL",
+                paramBlock(12L, "isPark", ParamType.BOOLEAN));
+
+        ObjectNode andBranch = controlsIf(and, textBlock("AND_TRUE"));
+        addElse(andBranch, textBlock("AND_FALSE"));
+        ObjectNode orBranch = controlsIf(or, textBlock("OR_TRUE"));
+        addElse(orBranch, textBlock("OR_FALSE"));
+        ObjectNode notBranch = controlsIf(not, textBlock("NOT_TRUE"));
+        addElse(notBranch, textBlock("NOT_FALSE"));
+
+        assertThat(render(andBranch,
+                Map.of("isPark", objectMapper.valueToTree(true))).renderedContent())
+                .isEqualTo("AND_TRUE");
+        assertThat(render(orBranch,
+                Map.of("isPark", objectMapper.valueToTree(false))).renderedContent())
+                .isEqualTo("OR_FALSE");
+        assertThat(render(notBranch,
+                Map.of("isPark", objectMapper.valueToTree(false))).renderedContent())
+                .isEqualTo("NOT_TRUE");
+    }
+
+    @Test
+    void shouldRejectNonBooleanAndOrNotInputsDuringTemplateValidation() {
+        ObjectNode invalidAnd = binary(BlocklyBlockTypes.LOGIC_OPERATION, "AND",
+                "A", textBlock("true"), "B", textBlock("false"));
+        ObjectNode invalidNot = unary(BlocklyBlockTypes.LOGIC_NEGATE, "BOOL", textBlock("true"));
+
+        assertThatThrownBy(() -> validate(controlsIf(invalidAnd, textBlock("DO0"))))
+                .isInstanceOf(BizException.class)
+                .hasMessage("logic_operation 的输入必须为布尔值");
+        assertThatThrownBy(() -> validate(controlsIf(invalidNot, textBlock("DO0"))))
+                .isInstanceOf(BizException.class)
+                .hasMessage("logic_negate 的输入必须为布尔值");
     }
 
     @Test

@@ -68,11 +68,12 @@ public class BlockRenderContext {
         }
         Object value = switch (type) {
             case NUMBER -> new BigDecimal(formatted);
+            case BOOLEAN -> rawValue.booleanValue();
             case STRING, TIME -> formatted;
             case STRING_ARRAY -> toStringArray(rawValue);
             case NUMBER_ARRAY -> toNumberArray(rawValue);
             case OBJECT_ARRAY -> toObjectArray(rawValue);
-            case BOOLEAN, OBJECT, STATEMENT -> throw new BizException(ErrorCode.PARAM_ERROR,
+            case OBJECT, STATEMENT -> throw new BizException(ErrorCode.PARAM_ERROR,
                     "场景参数类型不支持：" + param.getParamType());
         };
         return new BlocklyRenderValue(type, value);
@@ -93,7 +94,7 @@ public class BlockRenderContext {
         JsonNode rawValue = values.get(paramName);
         boolean provided = values.containsKey(paramName);
         if (!provided || rawValue == null || rawValue.isNull()) {
-            return missingValueText(param);
+            return missingValueText(param, provided);
         }
         if (rawValue.isTextual()) {
             return rawValue.textValue();
@@ -116,10 +117,10 @@ public class BlockRenderContext {
                 .orElse(null);
     }
 
-    private String missingValueText(MsgSceneParam param) {
+    private String missingValueText(MsgSceneParam param, boolean provided) {
         if (Integer.valueOf(1).equals(param.getIsRequired())) {
             throw new BizException(ErrorCode.PARAM_ERROR,
-                    "必填参数未提供或值为空：" + param.getParamName());
+                    (provided ? "必填参数值为空：" : "必填参数未提供：") + param.getParamName());
         }
         return "";
     }

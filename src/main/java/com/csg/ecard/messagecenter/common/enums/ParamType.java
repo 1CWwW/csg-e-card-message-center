@@ -9,6 +9,7 @@ public enum ParamType {
 
     STRING("STRING", "字符串"),
     NUMBER("NUMBER", "数字"),
+    BOOLEAN("BOOLEAN", "布尔值"),
     TIME("TIME", "时间"),
     STRING_ARRAY("STRING_ARRAY", "字符串数组"),
     NUMBER_ARRAY("NUMBER_ARRAY", "数字数组"),
