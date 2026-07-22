@@ -106,7 +106,12 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         TemplateDetailVO vo = toDetailVO(row);
         List<String> unitIds = msgTemplateUnitMapper.selectUnitIdsByTemplateId(id);
         vo.setUnitIds(unitIds == null ? Collections.emptyList() : unitIds);
-        vo.setBlocklyJson(blocklyJsonValidator.readNullable(row.getBlocklyJson()));
+        if (StringUtils.hasText(row.getBlocklyJson())) {
+            BlocklyValidationResult validation = blocklyJsonValidator.validateStored(
+                    row.getBlocklyJson(), row.getSceneId(), loadSceneParamMap(row.getSceneId()),
+                    BlocklyValidationMode.DRAFT);
+            vo.setBlocklyJson(validation.getBlocklyJson());
+        }
         vo.setSceneParams(listSceneParams(row.getSceneId()));
         return vo;
     }
@@ -201,8 +206,11 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         copied.setTemplateName(request.getTemplateName().trim());
         copied.setSceneId(targetScene.getId());
         copied.setChannelType(source.getChannelType());
-        if (Boolean.TRUE.equals(request.getCopyContent())) {
-            copied.setBlocklyJson(source.getBlocklyJson());
+        if (Boolean.TRUE.equals(request.getCopyContent()) && hasContent(source.getBlocklyJson())) {
+            BlocklyValidationResult sourceValidation = blocklyJsonValidator.validateStored(
+                    source.getBlocklyJson(), source.getSceneId(), loadSceneParamMap(source.getSceneId()),
+                    BlocklyValidationMode.DRAFT);
+            copied.setBlocklyJson(blocklyJsonValidator.write(sourceValidation.getBlocklyJson()));
         } else {
             copied.setBlocklyJson(null);
         }

@@ -33,9 +33,8 @@ public class BlocklyRenderer {
     private static final String CONTENT_INPUT = "CONTENT";
     private static final int MAX_ELSE_IF_COUNT = 10;
     private static final int MAX_LOOP_ITERATIONS = 100;
+    private static final int MAX_EXPRESSION_DEPTH = 100;
     private static final int MAX_RENDERED_CONTENT_BYTES = 1024 * 1024;
-    private static final int DIVISION_SCALE = 16;
-    private static final RoundingMode DIVISION_ROUNDING = RoundingMode.HALF_UP;
     private static final DateTimeFormatter TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String LINKED_NODE_MODE = "LINKED_NODES";
@@ -94,6 +93,7 @@ public class BlocklyRenderer {
             case BlocklyBlockTypes.MESSAGE_CONTENT -> renderMessageContent(block, context);
             case BlocklyBlockTypes.TEXT -> renderText(block);
             case BlocklyBlockTypes.TEXT_JOIN -> renderTextJoin(block, context);
+            case BlocklyBlockTypes.MATH_NUMBER -> renderMathNumber(block);
             case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
                     context.resolveParam(block);
             case BlocklyBlockTypes.AMOUNT_FORMAT -> renderAmount(block, context);
@@ -412,6 +412,10 @@ public class BlocklyRenderer {
         };
     }
 
+    private BlocklyRenderValue renderMathNumber(JsonNode block) {
+        return new BlocklyRenderValue(BlocklyValueType.NUMBER, parseMathNumber(block, ErrorCode.RENDER_FAILED));
+    }
+
     private BlocklyValueType parseLoopItemFieldType(String fieldType) {
         if (!StringUtils.hasText(fieldType)) {
             throw new BizException(ErrorCode.RENDER_FAILED, "loop_item_field 缺少 fieldType");
@@ -475,7 +479,7 @@ public class BlocklyRenderer {
         if (divisor.compareTo(BigDecimal.ZERO) == 0) {
             throw new BizException(ErrorCode.RENDER_FAILED, blockType + " 的除数不能为 0");
         }
-        return dividend.divide(divisor, DIVISION_SCALE, DIVISION_ROUNDING).stripTrailingZeros();
+        return BlocklyMathRules.divide(dividend, divisor);
     }
 
     private BlocklyRenderValue renderInput(JsonNode block,
@@ -508,6 +512,22 @@ public class BlocklyRenderer {
             }
         }
         return requireNumber(value, blockType);
+    }
+
+    private BigDecimal requireGraphNumber(BlocklyRenderValue value, String blockId, String operandName) {
+        if (value.value() instanceof BigDecimal number) {
+            return number;
+        }
+        if (value.value() instanceof String text && StringUtils.hasText(text)) {
+            try {
+                return new BigDecimal(text.trim());
+            } catch (NumberFormatException ignored) {
+                // 统一转换为包含数学运算节点 ID 的业务错误。
+            }
+        }
+        String reason = value.value() == null ? "不存在或值为空" : "不是有效数字";
+        throw new BizException(ErrorCode.RENDER_FAILED,
+                "节点 " + blockId + "：" + operandName + reason);
     }
 
     private BigDecimal numberOrNull(BlocklyRenderValue value) {
@@ -592,9 +612,11 @@ public class BlocklyRenderer {
     private boolean hasPotentialContent(JsonNode block, boolean includeNext) {
         String blockType = block.path("type").asText();
         boolean current = switch (blockType) {
+            case BlocklyBlockTypes.MESSAGE_CONTENT -> true;
             case BlocklyBlockTypes.TEXT -> hasTextField(block);
             case BlocklyBlockTypes.TEXT_JOIN -> hasTextField(block) || hasPotentialInputContent(block);
-            case BlocklyBlockTypes.SCENE_PARAM_VALUE,
+            case BlocklyBlockTypes.MATH_NUMBER,
+                 BlocklyBlockTypes.SCENE_PARAM_VALUE,
                  BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF,
                  BlocklyBlockTypes.AMOUNT_FORMAT,
                  BlocklyBlockTypes.TIME_FORMAT,
@@ -658,9 +680,12 @@ public class BlocklyRenderer {
     private void validateLinkedRenderable(JsonNode blocklyJson) {
         JsonNode workspace = blocklyJson.path("workspace");
         if (hasGraphMetadata(workspace)) {
-            GraphWorkspace graph = GraphWorkspace.from(workspace, buildBlockIndex(workspace.path("blocks").path("blocks")));
+            Map<String, JsonNode> blockIndex = buildBlockIndex(workspace.path("blocks").path("blocks"));
+            GraphWorkspace graph = GraphWorkspace.from(workspace, blockIndex);
             JsonNode entryBlock = graph.requireEntryBlock();
-            validateSupportedTree(entryBlock, false);
+            for (JsonNode block : blockIndex.values()) {
+                validateSupportedTree(block, block == entryBlock);
+            }
             if (!hasPotentialContent(entryBlock, false)) {
                 throw new BizException(ErrorCode.TEMPLATE_EMPTY, "模板正文不能为空");
             }
@@ -745,6 +770,7 @@ public class BlocklyRenderer {
         String blockType = block.path("type").asText();
         return switch (blockType) {
             case BlocklyBlockTypes.TEXT -> renderText(block);
+            case BlocklyBlockTypes.MATH_NUMBER -> renderMathNumber(block);
             case BlocklyBlockTypes.TEXT_JOIN -> renderTextJoin(block, context);
             case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
                     context.resolveParam(block);
@@ -768,16 +794,23 @@ public class BlocklyRenderer {
     private BlocklyRenderValue renderGraphValue(String blockId,
                                                 GraphWorkspace graph,
                                                 BlockRenderContext context,
-                                                Set<String> visiting) {
+                                                 Set<String> visiting) {
         JsonNode block = graph.requireBlock(blockId);
+        if (visiting.size() >= MAX_EXPRESSION_DEPTH) {
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    "节点 " + blockId + "：表达式递归层级超过 " + MAX_EXPRESSION_DEPTH);
+        }
         if (!visiting.add(blockId)) {
-            throw new BizException(ErrorCode.RENDER_FAILED, "Blockly 图结构存在循环引用：" + blockId);
+            throw new BizException(ErrorCode.RENDER_FAILED, "节点 " + blockId + "：表达式存在循环引用");
         }
         try {
             String blockType = block.path("type").asText();
             return switch (blockType) {
+                case BlocklyBlockTypes.MESSAGE_CONTENT ->
+                        renderGraphMessageContent(blockId, graph, context, visiting);
                 case BlocklyBlockTypes.TEXT -> prependGraphInput(blockId, graph, context, visiting, renderText(block));
                 case BlocklyBlockTypes.TEXT_JOIN -> renderGraphTextJoin(blockId, block, graph, context, visiting);
+                case BlocklyBlockTypes.MATH_NUMBER -> renderMathNumber(block);
                 case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
                         prependGraphInput(blockId, graph, context, visiting, context.resolveParam(block));
                 case BlocklyBlockTypes.AMOUNT_FORMAT -> renderGraphAmount(blockId, block, graph, context, visiting);
@@ -802,6 +835,24 @@ public class BlocklyRenderer {
         }
     }
 
+    private BlocklyRenderValue renderGraphMessageContent(String blockId,
+                                                         GraphWorkspace graph,
+                                                         BlockRenderContext context,
+                                                         Set<String> visiting) {
+        List<String> sourceIds = graph.inputSourceIds(blockId);
+        if (!sourceIds.isEmpty()) {
+            StringBuilder content = new StringBuilder();
+            for (String sourceId : sourceIds) {
+                content.append(requireText(renderGraphValue(sourceId, graph, context, visiting),
+                        graph.requireBlock(sourceId).path("type").asText()));
+            }
+            return new BlocklyRenderValue(BlocklyValueType.STRING, content.toString());
+        }
+        BlocklyRenderValue content = renderGraphInput(blockId, graph, context, visiting, CONTENT_INPUT, "input");
+        return new BlocklyRenderValue(BlocklyValueType.STRING,
+                requireText(content, BlocklyBlockTypes.MESSAGE_CONTENT));
+    }
+
     private BlocklyRenderValue renderGraphTextJoin(String blockId,
                                                    JsonNode block,
                                                    GraphWorkspace graph,
@@ -810,6 +861,15 @@ public class BlocklyRenderer {
         String suffix = text(block.path("fields").get("TEXT"));
         if (suffix == null) {
             suffix = "";
+        }
+        List<String> sourceIds = graph.inputSourceIds(blockId);
+        if (!sourceIds.isEmpty()) {
+            StringBuilder content = new StringBuilder();
+            for (String sourceId : sourceIds) {
+                content.append(requireText(renderGraphValue(sourceId, graph, context, visiting),
+                        graph.requireBlock(sourceId).path("type").asText()));
+            }
+            return new BlocklyRenderValue(BlocklyValueType.STRING, content.append(suffix).toString());
         }
         String inputId = graph.inputSourceId(blockId, "input");
         if (!StringUtils.hasText(inputId)) {
@@ -869,33 +929,75 @@ public class BlocklyRenderer {
                                                          GraphWorkspace graph,
                                                          BlockRenderContext context,
                                                          Set<String> visiting) {
+        BigDecimal result = evaluateGraphMathArithmetic(blockId, block, graph, context, visiting);
+        return renderMathNodeWithPreviousContent(blockId, result, graph, context, visiting);
+    }
+
+    private BigDecimal evaluateGraphMathArithmetic(String blockId,
+                                                   JsonNode block,
+                                                   GraphWorkspace graph,
+                                                   BlockRenderContext context,
+                                                   Set<String> visiting) {
         String operator = linkedOperator(block, Set.of("ADD", "MINUS", "MULTIPLY", "DIVIDE"));
         BigDecimal left = requireGraphNumber(renderGraphMathInput(blockId, graph, context, visiting,
-                "leftValueBlockId", "A", "leftValue", "input"), BlocklyBlockTypes.MATH_ARITHMETIC);
+                "leftValueBlockId", "左操作数"), blockId, "左操作数");
         BigDecimal right = requireGraphNumber(renderGraphMathInput(blockId, graph, context, visiting,
-                "rightValueBlockId", "B", "rightValue"), BlocklyBlockTypes.MATH_ARITHMETIC);
-        BigDecimal result = switch (operator) {
+                "rightValueBlockId", "右操作数"), blockId, "右操作数");
+        return switch (operator) {
             case "ADD" -> left.add(right);
             case "MINUS" -> left.subtract(right);
             case "MULTIPLY" -> left.multiply(right);
-            case "DIVIDE" -> divide(left, right, BlocklyBlockTypes.MATH_ARITHMETIC);
+            case "DIVIDE" -> divideGraph(left, right, blockId);
             default -> throw unsupportedOperator(BlocklyBlockTypes.MATH_ARITHMETIC);
         };
-        return new BlocklyRenderValue(BlocklyValueType.NUMBER, result);
     }
 
     private BlocklyRenderValue renderGraphModulo(String blockId,
                                                  GraphWorkspace graph,
                                                  BlockRenderContext context,
                                                  Set<String> visiting) {
+        BigDecimal result = evaluateGraphModulo(blockId, graph, context, visiting);
+        return renderMathNodeWithPreviousContent(blockId, result, graph, context, visiting);
+    }
+
+    private BigDecimal evaluateGraphModulo(String blockId,
+                                           GraphWorkspace graph,
+                                           BlockRenderContext context,
+                                           Set<String> visiting) {
         BigDecimal dividend = requireGraphNumber(renderGraphMathInput(blockId, graph, context, visiting,
-                "leftValueBlockId", "DIVIDEND", "leftValue", "input"), BlocklyBlockTypes.MATH_MODULO);
+                "leftValueBlockId", "左操作数"), blockId, "左操作数");
         BigDecimal divisor = requireGraphNumber(renderGraphMathInput(blockId, graph, context, visiting,
-                "rightValueBlockId", "DIVISOR", "rightValue"), BlocklyBlockTypes.MATH_MODULO);
+                "rightValueBlockId", "右操作数"), blockId, "右操作数");
         if (divisor.compareTo(BigDecimal.ZERO) == 0) {
-            throw new BizException(ErrorCode.RENDER_FAILED, "math_modulo 的除数不能为 0");
+            throw new BizException(ErrorCode.RENDER_FAILED, "节点 " + blockId + "：取余除数不能为 0");
         }
-        return new BlocklyRenderValue(BlocklyValueType.NUMBER, dividend.remainder(divisor));
+        return dividend.remainder(divisor);
+    }
+
+    private BlocklyRenderValue renderMathNodeWithPreviousContent(String blockId,
+                                                                 BigDecimal result,
+                                                                 GraphWorkspace graph,
+                                                                 BlockRenderContext context,
+                                                                 Set<String> visiting) {
+        String previousContent = renderGraphPreviousContent(blockId, graph, context, visiting);
+        BlocklyRenderValue number = new BlocklyRenderValue(BlocklyValueType.NUMBER, result);
+        if (!StringUtils.hasText(previousContent)) {
+            return number;
+        }
+        return new BlocklyRenderValue(BlocklyValueType.STRING, previousContent + number.asText());
+    }
+
+    private String renderGraphPreviousContent(String blockId,
+                                              GraphWorkspace graph,
+                                              BlockRenderContext context,
+                                              Set<String> visiting) {
+        String sourceId = graph.inputSourceId(blockId, "input");
+        if (!StringUtils.hasText(sourceId)) {
+            return "";
+        }
+        JsonNode sourceBlock = graph.requireBlock(sourceId);
+        return requireText(renderGraphValue(sourceId, graph, context, visiting),
+                sourceBlock.path("type").asText());
     }
 
     private BlocklyRenderValue renderGraphCompare(String blockId,
@@ -1075,7 +1177,7 @@ public class BlocklyRenderer {
                 }
             }
             throw new BizException(ErrorCode.RENDER_FAILED,
-                    block.path("type").asText() + " 缺少输入 " + ports[0]);
+                    "节点 " + blockId + "：缺少输入 " + ports[0]);
         }
         return renderGraphValue(sourceId, graph, context, visiting);
     }
@@ -1127,12 +1229,47 @@ public class BlocklyRenderer {
         String blockType = block.path("type").asText();
         return switch (blockType) {
             case BlocklyBlockTypes.TEXT -> renderText(block);
+            case BlocklyBlockTypes.MATH_NUMBER -> renderMathNumber(block);
             case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
                     context.resolveParam(block);
+            case BlocklyBlockTypes.MATH_ARITHMETIC, BlocklyBlockTypes.MATH_MODULO ->
+                    renderGraphMathValue(blockId, graph, context, visiting);
             case BlocklyBlockTypes.LOOP_ITEM_VALUE -> renderLoopItemValue(block, context);
             case BlocklyBlockTypes.LOOP_ITEM_FIELD -> renderLoopItemField(block, context);
             default -> renderGraphValue(blockId, graph, context, visiting);
         };
+    }
+
+    private BlocklyRenderValue renderGraphMathValue(String blockId,
+                                                    GraphWorkspace graph,
+                                                    BlockRenderContext context,
+                                                    Set<String> visiting) {
+        JsonNode block = graph.requireBlock(blockId);
+        if (visiting.size() >= MAX_EXPRESSION_DEPTH) {
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    "节点 " + blockId + "：表达式递归层级超过 " + MAX_EXPRESSION_DEPTH);
+        }
+        if (!visiting.add(blockId)) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "节点 " + blockId + "：表达式存在循环引用");
+        }
+        try {
+            return switch (block.path("type").asText()) {
+                case BlocklyBlockTypes.MATH_NUMBER -> renderMathNumber(block);
+                case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
+                        context.resolveParam(block);
+                case BlocklyBlockTypes.TEXT -> renderText(block);
+                case BlocklyBlockTypes.MATH_ARITHMETIC ->
+                        new BlocklyRenderValue(BlocklyValueType.NUMBER,
+                                evaluateGraphMathArithmetic(blockId, block, graph, context, visiting));
+                case BlocklyBlockTypes.MATH_MODULO ->
+                        new BlocklyRenderValue(BlocklyValueType.NUMBER,
+                                evaluateGraphModulo(blockId, graph, context, visiting));
+                default -> throw new BizException(ErrorCode.RENDER_FAILED,
+                        "节点 " + blockId + "：不能作为数学运算操作数");
+            };
+        } finally {
+            visiting.remove(blockId);
+        }
     }
 
     private BlocklyRenderValue renderGraphMathInput(String blockId,
@@ -1140,12 +1277,29 @@ public class BlocklyRenderer {
                                                     BlockRenderContext context,
                                                     Set<String> visiting,
                                                     String expressionField,
-                                                    String... fallbackPorts) {
-        String sourceId = graph.mathInputSourceId(blockId, expressionField);
-        if (StringUtils.hasText(sourceId)) {
-            return renderGraphValue(sourceId, graph, context, visiting);
+                                                    String operandName) {
+        try {
+            String sourceId = graph.mathInputSourceId(blockId, expressionField);
+            if (StringUtils.hasText(sourceId)) {
+                return renderGraphMathValue(sourceId, graph, context, visiting);
+            }
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    "节点 " + blockId + "：templateMathExpressions 缺少" + operandName);
+        } catch (BizException ex) {
+            if (ex.getMessage() != null && ex.getMessage().startsWith("节点 " + blockId + "：")) {
+                throw ex;
+            }
+            throw new BizException(ex.getCode(),
+                    "节点 " + blockId + "：" + operandName + "求值失败：" + ex.getMessage());
         }
-        return renderGraphInput(blockId, graph, context, visiting, fallbackPorts);
+    }
+
+    /** LINKED_NODES 数学表达式统一使用 16 位小数、HALF_UP 舍入。 */
+    private BigDecimal divideGraph(BigDecimal dividend, BigDecimal divisor, String blockId) {
+        if (divisor.compareTo(BigDecimal.ZERO) == 0) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "节点 " + blockId + "：除数不能为 0");
+        }
+        return BlocklyMathRules.divide(dividend, divisor);
     }
 
     private BlocklyRenderValue renderLinkedMathArithmetic(int index,
@@ -1365,6 +1519,13 @@ public class BlocklyRenderer {
             operator = text(block.path("fields").get("OP"));
         }
         if (!StringUtils.hasText(operator) || !supported.contains(operator)) {
+            String blockId = text(block.get("id"));
+            if (StringUtils.hasText(blockId)
+                    && (BlocklyBlockTypes.MATH_ARITHMETIC.equals(blockType)
+                    || BlocklyBlockTypes.MATH_MODULO.equals(blockType))) {
+                throw new BizException(ErrorCode.RENDER_FAILED,
+                        "节点 " + blockId + "：未知 operation：" + operator);
+            }
             throw new BizException(ErrorCode.RENDER_FAILED, blockType + " " + operator + " 不支持");
         }
         return operator;
@@ -1542,6 +1703,22 @@ public class BlocklyRenderer {
 
     private String text(JsonNode node) {
         return node != null && node.isTextual() ? node.textValue() : null;
+    }
+
+    private BigDecimal parseMathNumber(JsonNode block, ErrorCode errorCode) {
+        String blockId = text(block.get("id"));
+        String nodeName = StringUtils.hasText(blockId) ? "math_number 节点 " + blockId : "math_number";
+        JsonNode value = block.path("fields").get("NUM");
+        if (value == null || value.isNull()
+                || (!value.isNumber() && !value.isTextual())
+                || (value.isTextual() && !StringUtils.hasText(value.textValue()))) {
+            throw new BizException(errorCode, nodeName + "：fields.NUM 不能为空且必须为数字");
+        }
+        try {
+            return value.isNumber() ? value.decimalValue() : new BigDecimal(value.textValue().trim());
+        } catch (NumberFormatException ex) {
+            throw new BizException(errorCode, nodeName + "：fields.NUM 不是有效数字");
+        }
     }
 
     private boolean isLinkedNodeMode(JsonNode workspace) {
@@ -1791,7 +1968,8 @@ public class BlocklyRenderer {
                 return false;
             }
             String blockType = block.path("type").asText();
-            return BlocklyBlockTypes.CONTROLS_IF.equals(blockType)
+            return BlocklyBlockTypes.MESSAGE_CONTENT.equals(blockType)
+                    || BlocklyBlockTypes.CONTROLS_IF.equals(blockType)
                     || BlocklyBlockTypes.CONTROLS_FOR_EACH.equals(blockType);
         }
 
@@ -1801,7 +1979,8 @@ public class BlocklyRenderer {
             }
             String blockType = targetBlock.path("type").asText();
             return switch (blockType) {
-                case BlocklyBlockTypes.TEXT,
+                case BlocklyBlockTypes.MESSAGE_CONTENT,
+                        BlocklyBlockTypes.TEXT,
                         BlocklyBlockTypes.SCENE_PARAM_VALUE,
                         BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF,
                         BlocklyBlockTypes.LOOP_ITEM_VALUE,
@@ -1821,6 +2000,8 @@ public class BlocklyRenderer {
             }
             String blockType = targetBlock.path("type").asText();
             return switch (blockType) {
+                case BlocklyBlockTypes.MESSAGE_CONTENT ->
+                        Set.of(CONTENT_INPUT, "input").contains(targetPort) ? targetPort : null;
                 case BlocklyBlockTypes.TEXT,
                         BlocklyBlockTypes.SCENE_PARAM_VALUE,
                         BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF,
@@ -1833,9 +2014,11 @@ public class BlocklyRenderer {
                 case BlocklyBlockTypes.AMOUNT_FORMAT, BlocklyBlockTypes.TIME_FORMAT ->
                         Set.of("VALUE", "input").contains(targetPort) ? targetPort : null;
                 case BlocklyBlockTypes.MATH_ARITHMETIC ->
-                        Set.of("A", "B", "leftValue", "rightValue").contains(targetPort) ? targetPort : null;
+                        Set.of("input", "A", "B", "leftValue", "rightValue").contains(targetPort)
+                                ? targetPort : null;
                 case BlocklyBlockTypes.MATH_MODULO ->
-                        Set.of("DIVIDEND", "DIVISOR", "leftValue", "rightValue").contains(targetPort) ? targetPort : null;
+                        Set.of("input", "DIVIDEND", "DIVISOR", "leftValue", "rightValue").contains(targetPort)
+                                ? targetPort : null;
                 case BlocklyBlockTypes.LOGIC_COMPARE ->
                         Set.of("A", "B", "leftValue", "rightValue", "left", "right").contains(targetPort)
                                 ? targetPort : null;

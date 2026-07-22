@@ -272,6 +272,97 @@ class MsgTemplateServiceImplTest {
     }
 
     @Test
+    void shouldRenderMathInputPrefixThenExpressionResultAndSuffix() {
+        ObjectNode prefix = textJoinBlock("订单金额：");
+        prefix.put("id", "prefix");
+        ObjectNode amount = paramBlock(1L, "left", ParamType.NUMBER);
+        amount.put("id", "amount");
+        ObjectNode five = mathNumber("five", 5);
+        ObjectNode addition = linkedOperation("add", BlocklyBlockTypes.MATH_ARITHMETIC, "MINUS");
+        ObjectNode suffix = textJoinBlock("元");
+        suffix.put("id", "suffix");
+
+        ObjectNode workspace = graphWorkspace("suffix", prefix, amount, five, addition, suffix);
+        putLink(workspace, "prefix", "add", "input");
+        putLink(workspace, "amount", "add", "leftValue");
+        putLink(workspace, "five", "add", "rightValue");
+        putLink(workspace, "add", "suffix", "input");
+        putMathExpression(workspace, "add", "amount", "five");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+        BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("left", objectMapper.valueToTree(10)));
+
+        assertThat(result.renderedContent()).isEqualTo("订单金额：5元");
+        assertThat(result.usedParams()).containsExactly("left");
+    }
+
+    @Test
+    void shouldRenderMathResultAndSuffixWithoutPreviousContent() {
+        ObjectNode passengerCount = paramBlock(1L, "left", ParamType.NUMBER);
+        passengerCount.put("id", "passenger-count");
+        ObjectNode five = mathNumber("five", 5);
+        ObjectNode subtraction = linkedOperation("subtract", BlocklyBlockTypes.MATH_ARITHMETIC, "MINUS");
+        ObjectNode suffix = linkedText("suffix", "元");
+        ObjectNode workspace = graphWorkspace("suffix", passengerCount, five, subtraction, suffix);
+        putLink(workspace, "passenger-count", "subtract", "leftValue");
+        putLink(workspace, "five", "subtract", "rightValue");
+        putLink(workspace, "subtract", "suffix", "input");
+        putMathExpression(workspace, "subtract", "passenger-count", "five");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+        BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("left", objectMapper.valueToTree(10)));
+
+        assertThat(result.renderedContent()).isEqualTo("5元");
+    }
+
+    @Test
+    void shouldKeepCompletePreviousContentWhenMathNodeIsBranchTailPredecessor() {
+        ObjectNode title = linkedText("title", "标题-");
+        ObjectNode merchant = linkedText("merchant", "商户-");
+        ObjectNode prefix = linkedText("prefix", "共");
+        ObjectNode passengerCount = paramBlock(1L, "left", ParamType.NUMBER);
+        passengerCount.put("id", "passenger-count");
+        ObjectNode five = mathNumber("five", 5);
+        ObjectNode subtraction = linkedOperation("subtract", BlocklyBlockTypes.MATH_ARITHMETIC, "MINUS");
+        ObjectNode suffix = linkedText("suffix", "元");
+        ObjectNode thenText = linkedText("then", "另一分支");
+        ObjectNode condition = paramBlock(12L, "isPark", ParamType.BOOLEAN);
+        condition.put("id", "condition");
+        ObjectNode controlsIf = objectMapper.createObjectNode();
+        controlsIf.put("id", "if1");
+        controlsIf.put("type", BlocklyBlockTypes.CONTROLS_IF);
+
+        ObjectNode workspace = graphWorkspace("if1", title, merchant, prefix, passengerCount,
+                five, subtraction, suffix, thenText, condition, controlsIf);
+        putLink(workspace, "title", "merchant", "input");
+        putLink(workspace, "merchant", "prefix", "input");
+        putLink(workspace, "prefix", "subtract", "input");
+        putLink(workspace, "passenger-count", "subtract", "leftValue");
+        putLink(workspace, "five", "subtract", "rightValue");
+        putLink(workspace, "subtract", "suffix", "input");
+        putMathExpression(workspace, "subtract", "passenger-count", "five");
+        workspace.putObject("templateBranches")
+                .putObject("if1")
+                .put("conditionBlockId", "condition")
+                .put("thenBlockId", "then")
+                .put("elseBlockId", "suffix");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+        BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of(
+                        "left", objectMapper.valueToTree(10),
+                        "isPark", objectMapper.valueToTree(false)));
+
+        assertThat(result.renderedContent()).isEqualTo("标题-商户-共5元");
+        assertThat(result.renderedContent()).doesNotContain("1055");
+    }
+
+    @Test
     void shouldKeepGraphMathSubtractionOrder() {
         ObjectNode left = linkedText("left-number", "10");
         ObjectNode right = linkedText("right-number", "3");
@@ -294,13 +385,10 @@ class MsgTemplateServiceImplTest {
         ObjectNode workspace = graphWorkspace("divide", left, zero, divide);
         putMathExpression(workspace, "divide", "left-number", "zero-number");
 
-        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
-                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
-
-        assertThatThrownBy(() -> actualRenderer.render(validation.getBlocklyJson(), 1L,
-                expressionParams, Map.of()))
+        assertThatThrownBy(() -> actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT))
                 .isInstanceOf(BizException.class)
-                .hasMessage("math_arithmetic 的除数不能为 0");
+                .hasMessage("节点 divide：除数不能为 0");
     }
 
     @Test
@@ -326,13 +414,134 @@ class MsgTemplateServiceImplTest {
         ObjectNode workspace = graphWorkspace("modulo", left, zero, modulo);
         putMathExpression(workspace, "modulo", "left-number", "zero-number");
 
+        assertThatThrownBy(() -> actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT))
+                .isInstanceOf(BizException.class)
+                .hasMessage("节点 modulo：取余除数不能为 0");
+    }
+
+    @Test
+    void shouldRecursivelyCalculateMathNumbersAndJoinResultAsText() {
+        ObjectNode amount = paramBlock(1L, "left", ParamType.NUMBER);
+        amount.put("id", "amount");
+        ObjectNode twenty = mathNumber("twenty", 20);
+        ObjectNode two = mathNumber("two", "2");
+        ObjectNode addition = linkedOperation("add", BlocklyBlockTypes.MATH_ARITHMETIC, "ADD");
+        ObjectNode multiply = linkedOperation("multiply", BlocklyBlockTypes.MATH_ARITHMETIC, "MULTIPLY");
+        ObjectNode prefix = linkedText("prefix", "余额：");
+        ObjectNode content = objectMapper.createObjectNode();
+        content.put("id", "content");
+        content.put("type", BlocklyBlockTypes.MESSAGE_CONTENT);
+
+        ObjectNode workspace = graphWorkspace("content", amount, twenty, two, addition, multiply, prefix, content);
+        workspace.remove("templateNodeOrder");
+        putMathExpression(workspace, "add", "amount", "twenty");
+        putMathExpression(workspace, "multiply", "add", "two");
+        putLink(workspace, "prefix", "content", "input");
+        putLink(workspace, "multiply", "content", "input");
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+        BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("left", objectMapper.valueToTree(100)));
+
+        assertThat(result.renderedContent()).isEqualTo("余额：240");
+    }
+
+    @Test
+    void shouldCalculateMathNumberConstantsAndUseUnifiedDivisionPrecision() {
+        ObjectNode ten = mathNumber("ten", 10);
+        ObjectNode five = mathNumber("five", "5");
+        ObjectNode addition = linkedOperation("add", BlocklyBlockTypes.MATH_ARITHMETIC, "ADD");
+        ObjectNode addWorkspace = graphWorkspace("add", ten, five, addition);
+        putMathExpression(addWorkspace, "add", "ten", "five");
+
+        BlocklyValidationResult addValidation = actualValidator.validateWorkspace(1,
+                addWorkspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+        assertThat(actualRenderer.render(addValidation.getBlocklyJson(), 1L,
+                expressionParams, Map.of()).renderedContent()).isEqualTo("15");
+
+        ObjectNode four = mathNumber("four", 4);
+        ObjectNode division = linkedOperation("division", BlocklyBlockTypes.MATH_ARITHMETIC, "DIVIDE");
+        ObjectNode divideWorkspace = graphWorkspace("division", ten, four, division);
+        putMathExpression(divideWorkspace, "division", "ten", "four");
+        BlocklyValidationResult divideValidation = actualValidator.validateWorkspace(1,
+                divideWorkspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
+
+        assertThat(actualRenderer.render(divideValidation.getBlocklyJson(), 1L,
+                expressionParams, Map.of()).renderedContent()).isEqualTo("2.5");
+    }
+
+    @Test
+    void shouldRejectInvalidGraphMathStructureWithNodeId() {
+        ObjectNode invalidNumber = mathNumber("bad-number", "not-number");
+        ObjectNode one = mathNumber("one", 1);
+        ObjectNode addition = linkedOperation("add", BlocklyBlockTypes.MATH_ARITHMETIC, "ADD");
+        ObjectNode invalidNumberWorkspace = graphWorkspace("add", invalidNumber, one, addition);
+        putMathExpression(invalidNumberWorkspace, "add", "bad-number", "one");
+        assertThatThrownBy(() -> actualValidator.validateWorkspace(1,
+                invalidNumberWorkspace, 1L, expressionParams, BlocklyValidationMode.DRAFT))
+                .isInstanceOf(BizException.class)
+                .hasMessage("节点 bad-number：fields.NUM 不是有效数字");
+
+        ObjectNode missingOperandWorkspace = graphWorkspace("add", one, addition);
+        putMathExpression(missingOperandWorkspace, "add", "one", null);
+        assertThatThrownBy(() -> actualValidator.validateWorkspace(1,
+                missingOperandWorkspace, 1L, expressionParams, BlocklyValidationMode.DRAFT))
+                .isInstanceOf(BizException.class)
+                .hasMessage("节点 add：缺少右操作数");
+
+        ObjectNode cycleWorkspace = graphWorkspace("add", one, addition);
+        putMathExpression(cycleWorkspace, "add", "add", "one");
+        assertThatThrownBy(() -> actualValidator.validateWorkspace(1,
+                cycleWorkspace, 1L, expressionParams, BlocklyValidationMode.DRAFT))
+                .isInstanceOf(BizException.class)
+                .hasMessage("节点 add：表达式存在循环引用");
+
+        ObjectNode unknown = linkedOperation("unknown", BlocklyBlockTypes.MATH_ARITHMETIC, "POWER");
+        ObjectNode unknownWorkspace = graphWorkspace("unknown", one, unknown);
+        putMathExpression(unknownWorkspace, "unknown", "one", "one");
+        assertThatThrownBy(() -> actualValidator.validateWorkspace(1,
+                unknownWorkspace, 1L, expressionParams, BlocklyValidationMode.DRAFT))
+                .isInstanceOf(BizException.class)
+                .hasMessage("节点 unknown：未知 operation：POWER");
+    }
+
+    @Test
+    void shouldReportMathNodeIdWhenNumberParameterIsMissing() {
+        ObjectNode amount = paramBlock(1L, "left", ParamType.NUMBER);
+        amount.put("id", "amount");
+        ObjectNode one = mathNumber("one", 1);
+        ObjectNode addition = linkedOperation("add", BlocklyBlockTypes.MATH_ARITHMETIC, "ADD");
+        ObjectNode workspace = graphWorkspace("add", amount, one, addition);
+        putMathExpression(workspace, "add", "amount", "one");
         BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
                 workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
 
         assertThatThrownBy(() -> actualRenderer.render(validation.getBlocklyJson(), 1L,
                 expressionParams, Map.of()))
                 .isInstanceOf(BizException.class)
-                .hasMessage("math_modulo 的除数不能为 0");
+                .hasMessage("节点 add：左操作数求值失败：必填参数未提供：left");
+    }
+
+    @Test
+    void shouldRejectGraphMathExpressionOverDepthLimit() {
+        ObjectNode[] blocks = new ObjectNode[101];
+        blocks[0] = mathNumber("number", 1);
+        for (int index = 1; index <= 100; index++) {
+            blocks[index] = linkedOperation("op" + index,
+                    BlocklyBlockTypes.MATH_ARITHMETIC, "ADD");
+        }
+        ObjectNode workspace = graphWorkspace("op100", blocks);
+        for (int index = 1; index <= 100; index++) {
+            putMathExpression(workspace, "op" + index,
+                    index == 1 ? "number" : "op" + (index - 1), "number");
+        }
+
+        assertThatThrownBy(() -> actualValidator.validateWorkspace(1,
+                workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT))
+                .isInstanceOf(BizException.class)
+                .hasMessage("节点 op100：表达式递归层级超过 100");
     }
 
     @Test
@@ -1280,6 +1489,14 @@ class MsgTemplateServiceImplTest {
         block.put("id", id);
         block.put("type", BlocklyBlockTypes.TIME_FORMAT);
         block.putObject("fields").put("FORMAT", format);
+        return block;
+    }
+
+    private ObjectNode mathNumber(String id, Object value) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("id", id);
+        block.put("type", BlocklyBlockTypes.MATH_NUMBER);
+        block.putObject("fields").set("NUM", objectMapper.valueToTree(value));
         return block;
     }
 

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashSet;
@@ -132,6 +133,9 @@ public class BlocklyJsonValidator {
         JsonNode topBlocks = root.path("workspace").path("blocks").path("blocks");
         JsonNode workspace = root.path("workspace");
         if (isLinkedNodeMode(workspace)) {
+            if (hasGraphMetadata(workspace)) {
+                return !topBlocks.isArray() || topBlocks.isEmpty();
+            }
             JsonNode order = workspace.get("templateNodeOrder");
             return order == null || !order.isArray() || order.isEmpty();
         }
@@ -246,6 +250,9 @@ public class BlocklyJsonValidator {
     private boolean validateLinkedNodes(JsonNode workspace,
                                         JsonNode topBlocks,
                                         ValidationContext context) {
+        if (hasGraphMetadata(workspace)) {
+            return validateGraphLinkedNodes(workspace, topBlocks, context);
+        }
         JsonNode order = workspace.get("templateNodeOrder");
         if (order == null || !order.isArray() || order.isEmpty()) {
             return false;
@@ -267,6 +274,214 @@ public class BlocklyJsonValidator {
         return true;
     }
 
+    private boolean validateGraphLinkedNodes(JsonNode workspace,
+                                             JsonNode topBlocks,
+                                             ValidationContext context) {
+        Map<String, JsonNode> blockIndex = buildBlockIndex(topBlocks);
+        if (blockIndex.isEmpty()) {
+            return false;
+        }
+        Map<String, BlocklyValueType> blockTypes = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonNode> entry : blockIndex.entrySet()) {
+            JsonNode block = entry.getValue();
+            countNode(block, 1, context);
+            String blockType = requireBlockType(block);
+            if (!BlocklyBlockTypes.SUPPORTED_TYPES.contains(blockType)) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "不支持的 Blockly 节点类型：" + blockType);
+            }
+            BlocklyValueType valueType = validateGraphBlock(block, context);
+            if (valueType != null) {
+                blockTypes.put(entry.getKey(), valueType);
+            }
+        }
+
+        JsonNode expressions = workspace.path("templateMathExpressions");
+        Map<String, MathValidationValue> resolved = new LinkedHashMap<>();
+        Set<String> visiting = new HashSet<>();
+        for (Map.Entry<String, JsonNode> entry : blockIndex.entrySet()) {
+            String blockType = entry.getValue().path("type").asText();
+            if (BlocklyBlockTypes.MATH_ARITHMETIC.equals(blockType)
+                    || BlocklyBlockTypes.MATH_MODULO.equals(blockType)) {
+                validateGraphMathExpression(entry.getKey(), expressions, blockIndex, blockTypes,
+                        resolved, visiting, 1);
+            }
+        }
+        return true;
+    }
+
+    private BlocklyValueType validateGraphBlock(JsonNode block, ValidationContext context) {
+        String blockType = block.path("type").asText();
+        return switch (blockType) {
+            case BlocklyBlockTypes.TEXT -> validateText(block);
+            case BlocklyBlockTypes.TEXT_JOIN -> {
+                validateLinkedTextJoin(block);
+                yield BlocklyValueType.STRING;
+            }
+            case BlocklyBlockTypes.MATH_NUMBER -> validateMathNumber(block);
+            case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
+                    validateParamReference(block, context);
+            case BlocklyBlockTypes.MATH_ARITHMETIC -> {
+                requireGraphMathOperator(block);
+                yield BlocklyValueType.NUMBER;
+            }
+            case BlocklyBlockTypes.MATH_MODULO -> BlocklyValueType.NUMBER;
+            case BlocklyBlockTypes.LOGIC_COMPARE -> {
+                requireLinkedOperator(block, Set.of("EQ", "NEQ", "LT", "LTE", "GT", "GTE"));
+                yield BlocklyValueType.BOOLEAN;
+            }
+            case BlocklyBlockTypes.LOGIC_OPERATION -> {
+                requireLinkedOperator(block, Set.of("AND", "OR"));
+                yield BlocklyValueType.BOOLEAN;
+            }
+            case BlocklyBlockTypes.LOGIC_NEGATE, BlocklyBlockTypes.STRING_CONTAINS,
+                 BlocklyBlockTypes.STRING_LIKE -> BlocklyValueType.BOOLEAN;
+            case BlocklyBlockTypes.AMOUNT_FORMAT -> BlocklyValueType.STRING;
+            case BlocklyBlockTypes.TIME_FORMAT -> {
+                validateLinkedTimeFormat(block);
+                yield BlocklyValueType.STRING;
+            }
+            case BlocklyBlockTypes.CONTROLS_IF, BlocklyBlockTypes.CONTROLS_FOR_EACH,
+                 BlocklyBlockTypes.MESSAGE_CONTENT -> BlocklyValueType.STRING;
+            case BlocklyBlockTypes.LOOP_ITEM_VALUE, BlocklyBlockTypes.LOOP_ITEM_FIELD -> null;
+            default -> throw new BizException(ErrorCode.PARAM_ERROR,
+                    "不支持的 Blockly 节点类型：" + blockType);
+        };
+    }
+
+    private MathValidationValue validateGraphMathExpression(String blockId,
+                                                            JsonNode expressions,
+                                                            Map<String, JsonNode> blockIndex,
+                                                            Map<String, BlocklyValueType> blockTypes,
+                                                            Map<String, MathValidationValue> resolved,
+                                                            Set<String> visiting,
+                                                            int depth) {
+        MathValidationValue cached = resolved.get(blockId);
+        if (cached != null) {
+            return cached;
+        }
+        if (depth > MAX_RECURSION_DEPTH) {
+            throw mathValidationError(blockId,
+                    "表达式递归层级超过 " + MAX_RECURSION_DEPTH);
+        }
+        if (!visiting.add(blockId)) {
+            throw mathValidationError(blockId, "表达式存在循环引用");
+        }
+        try {
+            JsonNode block = blockIndex.get(blockId);
+            if (block == null) {
+                throw mathValidationError(blockId, "操作数节点不存在");
+            }
+            String blockType = block.path("type").asText();
+            MathValidationValue value;
+            if (BlocklyBlockTypes.MATH_NUMBER.equals(blockType)) {
+                value = new MathValidationValue(parseMathNumber(block), 1);
+            } else if (BlocklyBlockTypes.isSceneParamType(blockType)) {
+                if (blockTypes.get(blockId) != BlocklyValueType.NUMBER) {
+                    throw mathValidationError(blockId, "场景参数不是 NUMBER 类型");
+                }
+                value = new MathValidationValue(null, 1);
+            } else if (BlocklyBlockTypes.TEXT.equals(blockType)) {
+                value = new MathValidationValue(parseGraphNumericText(blockId, block), 1);
+            } else if (BlocklyBlockTypes.MATH_ARITHMETIC.equals(blockType)
+                    || BlocklyBlockTypes.MATH_MODULO.equals(blockType)) {
+                JsonNode expression = expressions.get(blockId);
+                if (expression == null || !expression.isObject()) {
+                    throw mathValidationError(blockId, "缺少 templateMathExpressions 配置");
+                }
+                String leftId = requiredMathOperandId(blockId, expression, "leftValueBlockId", "左操作数");
+                String rightId = requiredMathOperandId(blockId, expression, "rightValueBlockId", "右操作数");
+                if (!blockIndex.containsKey(leftId)) {
+                    throw mathValidationError(blockId, "左操作数节点不存在：" + leftId);
+                }
+                if (!blockIndex.containsKey(rightId)) {
+                    throw mathValidationError(blockId, "右操作数节点不存在：" + rightId);
+                }
+                MathValidationValue left = validateGraphMathExpression(leftId, expressions, blockIndex,
+                        blockTypes, resolved, visiting, depth + 1);
+                MathValidationValue right = validateGraphMathExpression(rightId, expressions, blockIndex,
+                        blockTypes, resolved, visiting, depth + 1);
+                int expressionDepth = Math.max(left.depth(), right.depth()) + 1;
+                if (expressionDepth > MAX_RECURSION_DEPTH) {
+                    throw mathValidationError(blockId,
+                            "表达式递归层级超过 " + MAX_RECURSION_DEPTH);
+                }
+                BigDecimal constant = validateConstantMathResult(blockId, block, left.constant(), right.constant());
+                value = new MathValidationValue(constant, expressionDepth);
+            } else {
+                throw mathValidationError(blockId, "节点类型 " + blockType + " 不能转换为数值");
+            }
+            resolved.put(blockId, value);
+            return value;
+        } finally {
+            visiting.remove(blockId);
+        }
+    }
+
+    private BigDecimal validateConstantMathResult(String blockId,
+                                                  JsonNode block,
+                                                  BigDecimal left,
+                                                  BigDecimal right) {
+        if (left == null || right == null) {
+            return null;
+        }
+        if (BlocklyBlockTypes.MATH_MODULO.equals(block.path("type").asText())) {
+            if (right.compareTo(BigDecimal.ZERO) == 0) {
+                throw mathValidationError(blockId, "取余除数不能为 0");
+            }
+            return left.remainder(right);
+        }
+        String operation = requireGraphMathOperator(block);
+        return switch (operation) {
+            case "ADD" -> left.add(right);
+            case "MINUS" -> left.subtract(right);
+            case "MULTIPLY" -> left.multiply(right);
+            case "DIVIDE" -> {
+                if (right.compareTo(BigDecimal.ZERO) == 0) {
+                    throw mathValidationError(blockId, "除数不能为 0");
+                }
+                yield BlocklyMathRules.divide(left, right);
+            }
+            default -> throw mathValidationError(blockId, "未知 operation：" + operation);
+        };
+    }
+
+    private String requireGraphMathOperator(JsonNode block) {
+        String blockId = text(block.get("id"));
+        String operation = linkedOperation(block);
+        if (!StringUtils.hasText(operation)
+                || !Set.of("ADD", "MINUS", "MULTIPLY", "DIVIDE").contains(operation)) {
+            throw mathValidationError(blockId, "未知 operation：" + operation);
+        }
+        return operation;
+    }
+
+    private String requiredMathOperandId(String blockId,
+                                         JsonNode expression,
+                                         String field,
+                                         String operandName) {
+        String operandId = text(expression.get(field));
+        if (!StringUtils.hasText(operandId)) {
+            throw mathValidationError(blockId, "缺少" + operandName);
+        }
+        return operandId;
+    }
+
+    private BigDecimal parseGraphNumericText(String blockId, JsonNode block) {
+        String value = text(block.path("fields").get("TEXT"));
+        if (!StringUtils.hasText(value)) {
+            throw mathValidationError(blockId, "文本操作数为空，不能转换为数值");
+        }
+        try {
+            return new BigDecimal(value.trim());
+        } catch (NumberFormatException ex) {
+            throw mathValidationError(blockId, "文本操作数不是有效数字");
+        }
+    }
+
+    private BizException mathValidationError(String blockId, String reason) {
+        return new BizException(ErrorCode.PARAM_ERROR, "节点 " + blockId + "：" + reason);
+    }
+
     private void validateLinkedOrderedBlocks(List<JsonNode> orderedBlocks, ValidationContext context) {
         for (int index = 0; index < orderedBlocks.size(); index++) {
             JsonNode block = orderedBlocks.get(index);
@@ -278,6 +493,7 @@ public class BlocklyJsonValidator {
             switch (blockType) {
                 case BlocklyBlockTypes.TEXT -> validateText(block);
                 case BlocklyBlockTypes.TEXT_JOIN -> validateLinkedTextJoin(block);
+                case BlocklyBlockTypes.MATH_NUMBER -> validateMathNumber(block);
                 case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
                         validateParamReference(block, context);
                 case BlocklyBlockTypes.MATH_ARITHMETIC ->
@@ -457,6 +673,7 @@ public class BlocklyJsonValidator {
         BlocklyValueType type = switch (blockType) {
             case BlocklyBlockTypes.TEXT -> validateText(block);
             case BlocklyBlockTypes.TEXT_JOIN -> validateTextJoin(block, depth, context);
+            case BlocklyBlockTypes.MATH_NUMBER -> validateMathNumber(block);
             case BlocklyBlockTypes.SCENE_PARAM_VALUE, BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF ->
                     validateParamReference(block, context);
             case BlocklyBlockTypes.AMOUNT_FORMAT -> validateFormatInput(
@@ -493,6 +710,11 @@ public class BlocklyJsonValidator {
             throw new BizException(ErrorCode.PARAM_ERROR, "text 的 TEXT 必须为字符串");
         }
         return BlocklyValueType.STRING;
+    }
+
+    private BlocklyValueType validateMathNumber(JsonNode block) {
+        parseMathNumber(block);
+        return BlocklyValueType.NUMBER;
     }
 
     private BlocklyValueType validateTextJoin(JsonNode block, int depth, ValidationContext context) {
@@ -1067,6 +1289,21 @@ public class BlocklyJsonValidator {
         return node != null && node.isTextual() ? node.textValue() : null;
     }
 
+    private BigDecimal parseMathNumber(JsonNode block) {
+        String blockId = text(block.get("id"));
+        JsonNode value = block.path("fields").get("NUM");
+        if (value == null || value.isNull()
+                || (!value.isNumber() && !value.isTextual())
+                || (value.isTextual() && !StringUtils.hasText(value.textValue()))) {
+            throw mathValidationError(blockId, "fields.NUM 不能为空且必须为数字");
+        }
+        try {
+            return value.isNumber() ? value.decimalValue() : new BigDecimal(value.textValue().trim());
+        } catch (NumberFormatException ex) {
+            throw mathValidationError(blockId, "fields.NUM 不是有效数字");
+        }
+    }
+
     private String linkedOperation(JsonNode block) {
         String operation = text(block.path("extraState").get("operation"));
         if (StringUtils.hasText(operation)) {
@@ -1079,6 +1316,16 @@ public class BlocklyJsonValidator {
         return workspace != null
                 && workspace.isObject()
                 && LINKED_NODE_MODE.equals(text(workspace.get("templateNodeMode")));
+    }
+
+    private boolean hasGraphMetadata(JsonNode workspace) {
+        return workspace != null
+                && workspace.isObject()
+                && ((workspace.path("templateLinks").isArray() && !workspace.path("templateLinks").isEmpty())
+                || (workspace.path("templateMathExpressions").isObject()
+                && !workspace.path("templateMathExpressions").isEmpty())
+                || (workspace.path("templateBranches").isObject() && !workspace.path("templateBranches").isEmpty())
+                || (workspace.path("templateLoops").isObject() && !workspace.path("templateLoops").isEmpty()));
     }
 
     private void validateSchemaVersion(Integer schemaVersion) {
@@ -1110,5 +1357,8 @@ public class BlocklyJsonValidator {
     }
 
     private record ControlsIfState(int elseIfCount, boolean hasElse) {
+    }
+
+    private record MathValidationValue(BigDecimal constant, int depth) {
     }
 }

@@ -10,6 +10,7 @@ public final class BlocklyBlockTypes {
     public static final String MESSAGE_CONTENT = "message_content";
     public static final String TEXT = "text";
     public static final String TEXT_JOIN = "text_join";
+    public static final String MATH_NUMBER = "math_number";
     public static final String SCENE_PARAM_VALUE = "scene_param_value";
 
     /**
@@ -38,6 +39,7 @@ public final class BlocklyBlockTypes {
             MESSAGE_CONTENT,
             TEXT,
             TEXT_JOIN,
+            MATH_NUMBER,
             SCENE_PARAM_VALUE,
             LEGACY_SCENE_PARAM_REF,
             AMOUNT_FORMAT,
