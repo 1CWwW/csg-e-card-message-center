@@ -1172,7 +1172,8 @@ public class BlocklyJsonValidator {
                                   ValidationContext context) {
         String blockType = block.path("type").asText();
         BlocklyValueType actual = validateRequiredInput(block, inputName, depth, context);
-        requireType(actual, expected, blockType + " 的输入必须为 " + typeName(expected));
+        String separator = expected == BlocklyValueType.BOOLEAN ? "" : " ";
+        requireType(actual, expected, blockType + " 的输入必须为" + separator + typeName(expected));
     }
 
     private String requireOperator(JsonNode block, Set<String> supported) {
