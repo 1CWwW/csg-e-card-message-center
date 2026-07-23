@@ -1,7 +1,7 @@
 package com.csg.ecard.messagecenter.module.channel.controller;
 
 import com.csg.ecard.messagecenter.common.page.PageResult;
-import com.csg.ecard.messagecenter.common.result.ApiResult;
+import com.csg.ecard.messagecenter.common.result.CommonResult;
 import com.csg.ecard.messagecenter.module.channel.dto.ChannelCreateDTO;
 import com.csg.ecard.messagecenter.module.channel.dto.ChannelPageQueryDTO;
 import com.csg.ecard.messagecenter.module.channel.dto.ChannelUpdateDTO;
@@ -42,8 +42,8 @@ public class MsgChannelController {
      */
     @GetMapping("/list")
     @Operation(summary = "渠道分页查询")
-    public ApiResult<PageResult<MsgChannelVO>> list(@ParameterObject @Valid ChannelPageQueryDTO query) {
-        return ApiResult.success(msgChannelService.page(query));
+    public CommonResult<PageResult<MsgChannelVO>> list(@ParameterObject @Valid ChannelPageQueryDTO query) {
+        return CommonResult.success(msgChannelService.page(query));
     }
 
     /**
@@ -54,8 +54,8 @@ public class MsgChannelController {
      */
     @GetMapping("/{id}")
     @Operation(summary = "渠道详情查询")
-    public ApiResult<MsgChannelVO> detail(@PathVariable Long id) {
-        return ApiResult.success(msgChannelService.detail(id));
+    public CommonResult<MsgChannelVO> detail(@PathVariable Long id) {
+        return CommonResult.success(msgChannelService.detail(id));
     }
 
     /**
@@ -66,8 +66,8 @@ public class MsgChannelController {
      */
     @PostMapping
     @Operation(summary = "新增渠道")
-    public ApiResult<MsgChannelVO> create(@RequestBody @Valid ChannelCreateDTO request) {
-        return ApiResult.success(msgChannelService.create(request));
+    public CommonResult<MsgChannelVO> create(@RequestBody @Valid ChannelCreateDTO request) {
+        return CommonResult.success(msgChannelService.create(request));
     }
 
     /**
@@ -79,8 +79,8 @@ public class MsgChannelController {
      */
     @PutMapping("/{id}")
     @Operation(summary = "编辑渠道")
-    public ApiResult<MsgChannelVO> update(@PathVariable Long id, @RequestBody @Valid ChannelUpdateDTO request) {
-        return ApiResult.success(msgChannelService.update(id, request));
+    public CommonResult<MsgChannelVO> update(@PathVariable Long id, @RequestBody @Valid ChannelUpdateDTO request) {
+        return CommonResult.success(msgChannelService.update(id, request));
     }
 
     /**
@@ -91,9 +91,9 @@ public class MsgChannelController {
      */
     @DeleteMapping("/{id}")
     @Operation(summary = "删除渠道")
-    public ApiResult<Void> delete(@PathVariable Long id) {
+    public CommonResult<Void> delete(@PathVariable Long id) {
         msgChannelService.delete(id);
-        return ApiResult.success();
+        return CommonResult.success();
     }
 
     /**
@@ -104,7 +104,7 @@ public class MsgChannelController {
      */
     @PutMapping("/{id}/toggle")
     @Operation(summary = "渠道启停切换")
-    public ApiResult<MsgChannelVO> toggle(@PathVariable Long id) {
-        return ApiResult.success(msgChannelService.toggle(id));
+    public CommonResult<MsgChannelVO> toggle(@PathVariable Long id) {
+        return CommonResult.success(msgChannelService.toggle(id));
     }
 }

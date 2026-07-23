@@ -40,11 +40,11 @@ class OrganizationControllerTest {
 
         mockMvc.perform(get("/api/msg/organization/tree/children").param("parentOrgId", "100"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("00000"))
-                .andExpect(jsonPath("$.data[0].orgId").value("100000000000000001"))
-                .andExpect(jsonPath("$.data[0].state").value(1))
-                .andExpect(jsonPath("$.data[0].hasChildren").value(true))
-                .andExpect(jsonPath("$.data[0].children").doesNotExist());
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.result[0].orgId").value("100000000000000001"))
+                .andExpect(jsonPath("$.result[0].state").value(1))
+                .andExpect(jsonPath("$.result[0].hasChildren").value(true))
+                .andExpect(jsonPath("$.result[0].children").doesNotExist());
     }
 
     @Test
@@ -58,7 +58,7 @@ class OrganizationControllerTest {
                         .contentType("application/json")
                         .content("{\"orgIds\":[\"1001\",\"1002\"]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].orgId").value("1001"));
+                .andExpect(jsonPath("$.result[0].orgId").value("1001"));
     }
 
     @Test
@@ -67,7 +67,7 @@ class OrganizationControllerTest {
 
         mockMvc.perform(get("/api/msg/organization/search").param("keyword", ""))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data").isArray())
-                .andExpect(jsonPath("$.data").isEmpty());
+                .andExpect(jsonPath("$.result").isArray())
+                .andExpect(jsonPath("$.result").isEmpty());
     }
 }

@@ -1,6 +1,6 @@
 package com.csg.ecard.messagecenter.module.scene.controller;
 
-import com.csg.ecard.messagecenter.common.result.ApiResult;
+import com.csg.ecard.messagecenter.common.result.CommonResult;
 import com.csg.ecard.messagecenter.module.scene.dto.SceneParamCreateDTO;
 import com.csg.ecard.messagecenter.module.scene.dto.SceneParamSortDTO;
 import com.csg.ecard.messagecenter.module.scene.dto.SceneParamUpdateDTO;
@@ -43,8 +43,8 @@ public class SceneParamController {
      */
     @GetMapping
     @Operation(summary = "参数列表查询")
-    public ApiResult<List<SceneParamVO>> list(@PathVariable Long id) {
-        return ApiResult.success(sceneParamService.list(id));
+    public CommonResult<List<SceneParamVO>> list(@PathVariable Long id) {
+        return CommonResult.success(sceneParamService.list(id));
     }
 
     /**
@@ -56,8 +56,8 @@ public class SceneParamController {
      */
     @PostMapping
     @Operation(summary = "新增参数")
-    public ApiResult<SceneParamVO> create(@PathVariable Long id, @RequestBody @Valid SceneParamCreateDTO request) {
-        return ApiResult.success(sceneParamService.create(id, request));
+    public CommonResult<SceneParamVO> create(@PathVariable Long id, @RequestBody @Valid SceneParamCreateDTO request) {
+        return CommonResult.success(sceneParamService.create(id, request));
     }
 
     /**
@@ -70,10 +70,10 @@ public class SceneParamController {
      */
     @PutMapping("/{paramId}")
     @Operation(summary = "编辑参数")
-    public ApiResult<SceneParamVO> update(@PathVariable Long id,
+    public CommonResult<SceneParamVO> update(@PathVariable Long id,
                                           @PathVariable Long paramId,
                                           @RequestBody @Valid SceneParamUpdateDTO request) {
-        return ApiResult.success(sceneParamService.update(id, paramId, request));
+        return CommonResult.success(sceneParamService.update(id, paramId, request));
     }
 
     /**
@@ -85,9 +85,9 @@ public class SceneParamController {
      */
     @DeleteMapping("/{paramId}")
     @Operation(summary = "删除参数")
-    public ApiResult<Void> delete(@PathVariable Long id, @PathVariable Long paramId) {
+    public CommonResult<Void> delete(@PathVariable Long id, @PathVariable Long paramId) {
         sceneParamService.delete(id, paramId);
-        return ApiResult.success();
+        return CommonResult.success();
     }
 
     /**
@@ -99,9 +99,9 @@ public class SceneParamController {
      */
     @PutMapping("/sort")
     @Operation(summary = "参数排序")
-    public ApiResult<Void> sort(@PathVariable Long id, @RequestBody @Valid SceneParamSortDTO request) {
+    public CommonResult<Void> sort(@PathVariable Long id, @RequestBody @Valid SceneParamSortDTO request) {
         sceneParamService.sort(id, request);
-        return ApiResult.success();
+        return CommonResult.success();
     }
 
     /**
@@ -113,7 +113,7 @@ public class SceneParamController {
      */
     @GetMapping("/{paramId}/usage")
     @Operation(summary = "参数引用查询")
-    public ApiResult<SceneParamUsageVO> usage(@PathVariable Long id, @PathVariable Long paramId) {
-        return ApiResult.success(sceneParamService.usage(id, paramId));
+    public CommonResult<SceneParamUsageVO> usage(@PathVariable Long id, @PathVariable Long paramId) {
+        return CommonResult.success(sceneParamService.usage(id, paramId));
     }
 }

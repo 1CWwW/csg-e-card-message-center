@@ -1,6 +1,6 @@
 package com.csg.ecard.messagecenter.module.record.controller;
 
-import com.csg.ecard.messagecenter.common.result.ApiResult;
+import com.csg.ecard.messagecenter.common.result.CommonResult;
 import com.csg.ecard.messagecenter.module.record.dto.MessageRecordFilterDTO;
 import com.csg.ecard.messagecenter.module.record.dto.MessageRecordPageQueryDTO;
 import com.csg.ecard.messagecenter.module.record.export.MessageRecordExcelExporter;
@@ -53,8 +53,8 @@ public class MessageRecordController {
     @GetMapping("/overview")
     @Operation(summary = "消息记录概览",
             description = "按服务器当前日期和记录创建时间统计今日、昨日数量及成功率")
-    public ApiResult<MessageRecordOverviewVO> overview() {
-        return ApiResult.success(messageRecordService.overview());
+    public CommonResult<MessageRecordOverviewVO> overview() {
+        return CommonResult.success(messageRecordService.overview());
     }
 
     @GetMapping("/list")
@@ -63,9 +63,9 @@ public class MessageRecordController {
                     + "messageContent为模板渲染后实际提交渠道发送器的最终推送内容；"
                     + "priority为消息业务优先级HIGH、NORMAL、LOW，与渠道匹配优先级无关；"
                     + "callType仅支持SYNC、ASYNC，表示消息最初由同步或异步推送入口进入，重试和手动重发不会改变")
-    public ApiResult<MessageRecordPageResult> list(
+    public CommonResult<MessageRecordPageResult> list(
             @ParameterObject @Valid MessageRecordPageQueryDTO query) {
-        return ApiResult.success(messageRecordService.page(query));
+        return CommonResult.success(messageRecordService.page(query));
     }
 
     @GetMapping("/{id}")
@@ -74,26 +74,26 @@ public class MessageRecordController {
                     + "callType仅支持SYNC、ASYNC，与消息优先级和渠道优先级无关；"
                     + "errorStack仅用于技术排障，可能为空且仅详情接口返回；"
                     + "用户姓名和单位名称尚未接入员工中心")
-    public ApiResult<MessageRecordDetailVO> detail(
+    public CommonResult<MessageRecordDetailVO> detail(
             @Parameter(description = "消息记录ID，对外为字符串") @PathVariable Long id) {
-        return ApiResult.success(messageRecordService.detail(id));
+        return CommonResult.success(messageRecordService.detail(id));
     }
 
     @PostMapping("/{id}/resend")
     @Operation(summary = "失败记录手工重发",
             description = "仅FAILED记录可重发；只发送当前记录对应渠道，使用历史记录原始完整messageContent，"
                     + "不重新渲染模板且不进入RabbitMQ自动重试；重发保持原消息业务优先级")
-    public ApiResult<MessageRecordResendVO> resend(
+    public CommonResult<MessageRecordResendVO> resend(
             @Parameter(description = "消息记录ID，对外为字符串") @PathVariable Long id) {
-        return ApiResult.success(messageRecordService.resend(id));
+        return CommonResult.success(messageRecordService.resend(id));
     }
 
     @GetMapping("/{id}/resend-logs")
     @Operation(summary = "查询消息记录手动重发日志",
             description = "按重发次数升序返回指定消息记录的每次手动重发结果")
-    public ApiResult<List<MessageRecordResendLogVO>> resendLogs(
+    public CommonResult<List<MessageRecordResendLogVO>> resendLogs(
             @Parameter(description = "消息记录ID，对外为字符串") @PathVariable Long id) {
-        return ApiResult.success(messageRecordService.resendLogs(id));
+        return CommonResult.success(messageRecordService.resendLogs(id));
     }
 
     @GetMapping("/export")

@@ -1,6 +1,6 @@
 package com.csg.ecard.messagecenter.module.organization.controller;
 
-import com.csg.ecard.messagecenter.common.result.ApiResult;
+import com.csg.ecard.messagecenter.common.result.CommonResult;
 import com.csg.ecard.messagecenter.module.organization.dto.OrganizationResolveDTO;
 import com.csg.ecard.messagecenter.module.organization.service.OrganizationService;
 import com.csg.ecard.messagecenter.module.organization.vo.OrganizationLazyNodeVO;
@@ -37,8 +37,8 @@ public class OrganizationController {
      */
     @GetMapping("/tree")
     @Operation(summary = "查询组织树")
-    public ApiResult<List<OrganizationNodeVO>> tree() {
-        return ApiResult.success(organizationService.tree());
+    public CommonResult<List<OrganizationNodeVO>> tree() {
+        return CommonResult.success(organizationService.tree());
     }
 
     /**
@@ -49,9 +49,9 @@ public class OrganizationController {
      */
     @GetMapping("/tree/children")
     @Operation(summary = "按父节点查询直接子组织")
-    public ApiResult<List<OrganizationLazyNodeVO>> children(
+    public CommonResult<List<OrganizationLazyNodeVO>> children(
             @RequestParam(required = false) String parentOrgId) {
-        return ApiResult.success(organizationService.children(parentOrgId));
+        return CommonResult.success(organizationService.children(parentOrgId));
     }
 
     /**
@@ -62,8 +62,8 @@ public class OrganizationController {
      */
     @PostMapping("/tree/resolve")
     @Operation(summary = "批量解析组织及祖先路径")
-    public ApiResult<List<OrganizationResolvedVO>> resolve(@Valid @RequestBody OrganizationResolveDTO request) {
-        return ApiResult.success(organizationService.resolve(request));
+    public CommonResult<List<OrganizationResolvedVO>> resolve(@Valid @RequestBody OrganizationResolveDTO request) {
+        return CommonResult.success(organizationService.resolve(request));
     }
 
     /**
@@ -74,7 +74,7 @@ public class OrganizationController {
      */
     @GetMapping("/search")
     @Operation(summary = "搜索组织")
-    public ApiResult<List<OrganizationResolvedVO>> search(@RequestParam(required = false) String keyword) {
-        return ApiResult.success(organizationService.search(keyword));
+    public CommonResult<List<OrganizationResolvedVO>> search(@RequestParam(required = false) String keyword) {
+        return CommonResult.success(organizationService.search(keyword));
     }
 }

@@ -1,7 +1,7 @@
 package com.csg.ecard.messagecenter.module.push.api;
 
 import com.csg.ecard.messagecenter.common.exception.BizException;
-import com.csg.ecard.messagecenter.common.result.ApiResult;
+import com.csg.ecard.messagecenter.common.result.CommonResult;
 import com.csg.ecard.messagecenter.module.push.dto.GroupPushDTO;
 import com.csg.ecard.messagecenter.module.push.dto.MassPushDTO;
 import com.csg.ecard.messagecenter.module.push.dto.SyncPushDTO;
@@ -35,9 +35,9 @@ public class MessagePushController {
     @Operation(summary = "同步推送消息",
             description = "priority为消息业务优先级，可选HIGH、NORMAL、LOW，未传默认NORMAL；"
                     + "它不等于渠道匹配优先级，同步推送不经过RabbitMQ")
-    public ApiResult<SyncPushVO> pushSync(@RequestBody @Valid SyncPushDTO request) {
+    public CommonResult<SyncPushVO> pushSync(@RequestBody @Valid SyncPushDTO request) {
         try {
-            return ApiResult.success(messagePushService.pushSync(request));
+            return CommonResult.success(messagePushService.pushSync(request));
         } catch (MessagePushException ex) {
             throw ex;
         } catch (BizException | IllegalArgumentException ex) {
@@ -51,9 +51,9 @@ public class MessagePushController {
 
     @PostMapping("/sync/mass")
     @Operation(summary = "同步群发消息", description = "同一场景参数渲染同一内容，发送给多个接收人")
-    public ApiResult<SyncPushVO> pushMass(@RequestBody @Valid MassPushDTO request) {
+    public CommonResult<SyncPushVO> pushMass(@RequestBody @Valid MassPushDTO request) {
         try {
-            return ApiResult.success(messagePushService.pushMass(request));
+            return CommonResult.success(messagePushService.pushMass(request));
         } catch (MessagePushException ex) {
             throw ex;
         } catch (BizException | IllegalArgumentException ex) {
@@ -67,9 +67,9 @@ public class MessagePushController {
 
     @PostMapping("/sync/group")
     @Operation(summary = "同步组发消息", description = "同一批次内多条消息可分别携带不同场景参数和接收人")
-    public ApiResult<SyncPushVO> pushGroup(@RequestBody @Valid GroupPushDTO request) {
+    public CommonResult<SyncPushVO> pushGroup(@RequestBody @Valid GroupPushDTO request) {
         try {
-            return ApiResult.success(messagePushService.pushGroup(request));
+            return CommonResult.success(messagePushService.pushGroup(request));
         } catch (MessagePushException ex) {
             throw ex;
         } catch (BizException | IllegalArgumentException ex) {
@@ -86,9 +86,9 @@ public class MessagePushController {
             description = "priority为消息业务优先级，可选HIGH、NORMAL、LOW，未传默认NORMAL；"
                     + "异步推送会映射为RabbitMQ主队列优先级，但不会抢占已经开始处理的消息；"
                     + "自动重试保持原优先级，且priority不参与渠道匹配")
-    public ApiResult<AsyncPushVO> pushAsync(@RequestBody @Valid SyncPushDTO request) {
+    public CommonResult<AsyncPushVO> pushAsync(@RequestBody @Valid SyncPushDTO request) {
         try {
-            return ApiResult.success(messagePushService.pushAsync(request));
+            return CommonResult.success(messagePushService.pushAsync(request));
         } catch (MessagePushException ex) {
             throw ex;
         } catch (BizException | IllegalArgumentException ex) {
@@ -101,12 +101,12 @@ public class MessagePushController {
     }
 
     /**
-     * 按同步推送接口契约返回数字字符串业务码和对应 HTTP 状态。
+     * 按同步推送接口契约返回数字业务码和对应 HTTP 状态。
      */
     @ExceptionHandler(MessagePushException.class)
-    public ResponseEntity<ApiResult<Void>> handleMessagePushException(MessagePushException ex) {
-        String code = String.valueOf(ex.getHttpStatus().value());
+    public ResponseEntity<CommonResult<Void>> handleMessagePushException(MessagePushException ex) {
+        long code = ex.getHttpStatus().value();
         return ResponseEntity.status(ex.getHttpStatus())
-                .body(ApiResult.fail(code, ex.getMessage()));
+                .body(CommonResult.fail(code, ex.getMessage()));
     }
 }

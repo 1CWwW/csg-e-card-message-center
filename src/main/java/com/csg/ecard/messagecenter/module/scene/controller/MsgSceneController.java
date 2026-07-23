@@ -1,7 +1,7 @@
 package com.csg.ecard.messagecenter.module.scene.controller;
 
 import com.csg.ecard.messagecenter.common.page.PageResult;
-import com.csg.ecard.messagecenter.common.result.ApiResult;
+import com.csg.ecard.messagecenter.common.result.CommonResult;
 import com.csg.ecard.messagecenter.module.scene.dto.SceneCreateDTO;
 import com.csg.ecard.messagecenter.module.scene.dto.ScenePageQueryDTO;
 import com.csg.ecard.messagecenter.module.scene.dto.SceneUpdateDTO;
@@ -46,8 +46,8 @@ public class MsgSceneController {
      */
     @GetMapping("/list")
     @Operation(summary = "场景分页查询")
-    public ApiResult<PageResult<MsgSceneVO>> list(@ParameterObject @Valid ScenePageQueryDTO query) {
-        return ApiResult.success(msgSceneService.page(query));
+    public CommonResult<PageResult<MsgSceneVO>> list(@ParameterObject @Valid ScenePageQueryDTO query) {
+        return CommonResult.success(msgSceneService.page(query));
     }
 
     /**
@@ -58,8 +58,8 @@ public class MsgSceneController {
      */
     @GetMapping("/{id}")
     @Operation(summary = "场景详情查询")
-    public ApiResult<MsgSceneVO> detail(@PathVariable Long id) {
-        return ApiResult.success(msgSceneService.detail(id));
+    public CommonResult<MsgSceneVO> detail(@PathVariable Long id) {
+        return CommonResult.success(msgSceneService.detail(id));
     }
 
     /**
@@ -70,8 +70,8 @@ public class MsgSceneController {
      */
     @GetMapping("/{id}/disable-check")
     @Operation(summary = "场景停用检查")
-    public ApiResult<SceneDisableCheckVO> disableCheck(@PathVariable Long id) {
-        return ApiResult.success(msgSceneService.disableCheck(id));
+    public CommonResult<SceneDisableCheckVO> disableCheck(@PathVariable Long id) {
+        return CommonResult.success(msgSceneService.disableCheck(id));
     }
 
     /**
@@ -82,10 +82,10 @@ public class MsgSceneController {
      */
     @GetMapping("/check-code")
     @Operation(summary = "场景编码可用性检查")
-    public ApiResult<SceneCodeCheckVO> checkCode(
+    public CommonResult<SceneCodeCheckVO> checkCode(
             @RequestParam @NotBlank(message = "场景编码不能为空") String sceneCode,
             @RequestParam(required = false) Long excludeId) {
-        return ApiResult.success(msgSceneService.checkCode(sceneCode, excludeId));
+        return CommonResult.success(msgSceneService.checkCode(sceneCode, excludeId));
     }
 
     /**
@@ -96,8 +96,8 @@ public class MsgSceneController {
      */
     @PostMapping
     @Operation(summary = "新增场景")
-    public ApiResult<MsgSceneVO> create(@RequestBody @Valid SceneCreateDTO request) {
-        return ApiResult.success(msgSceneService.create(request));
+    public CommonResult<MsgSceneVO> create(@RequestBody @Valid SceneCreateDTO request) {
+        return CommonResult.success(msgSceneService.create(request));
     }
 
     /**
@@ -109,8 +109,8 @@ public class MsgSceneController {
      */
     @PutMapping("/{id}")
     @Operation(summary = "编辑场景")
-    public ApiResult<MsgSceneVO> update(@PathVariable Long id, @RequestBody @Valid SceneUpdateDTO request) {
-        return ApiResult.success(msgSceneService.update(id, request));
+    public CommonResult<MsgSceneVO> update(@PathVariable Long id, @RequestBody @Valid SceneUpdateDTO request) {
+        return CommonResult.success(msgSceneService.update(id, request));
     }
 
     /**
@@ -121,9 +121,9 @@ public class MsgSceneController {
      */
     @DeleteMapping("/{id}")
     @Operation(summary = "删除场景")
-    public ApiResult<Void> delete(@PathVariable Long id) {
+    public CommonResult<Void> delete(@PathVariable Long id) {
         msgSceneService.delete(id);
-        return ApiResult.success();
+        return CommonResult.success();
     }
 
     /**
@@ -134,7 +134,7 @@ public class MsgSceneController {
      */
     @PutMapping("/{id}/toggle")
     @Operation(summary = "启停切换场景")
-    public ApiResult<MsgSceneVO> toggle(@PathVariable Long id) {
-        return ApiResult.success(msgSceneService.toggle(id));
+    public CommonResult<MsgSceneVO> toggle(@PathVariable Long id) {
+        return CommonResult.success(msgSceneService.toggle(id));
     }
 }

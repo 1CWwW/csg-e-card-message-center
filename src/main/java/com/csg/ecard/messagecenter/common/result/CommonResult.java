@@ -15,21 +15,21 @@ import lombok.ToString;
 @Setter
 @ToString
 @Schema(description = "统一接口返回结构")
-public class ApiResult<T> {
+public class CommonResult<T> {
 
     @Schema(description = "业务状态码")
-    private String code;
+    private long code;
 
     @Schema(description = "响应消息")
     private String message;
 
     @Schema(description = "响应数据")
-    private T data;
+    private T result;
 
-    private ApiResult(String code, String message, T data) {
+    private CommonResult(long code, String message, T result) {
         this.code = code;
         this.message = message;
-        this.data = data;
+        this.result = result;
     }
 
     /**
@@ -38,19 +38,19 @@ public class ApiResult<T> {
      * @param <T> 响应数据类型
      * @return 成功响应
      */
-    public static <T> ApiResult<T> success() {
+    public static <T> CommonResult<T> success() {
         return success(null);
     }
 
     /**
      * 构造带业务数据的成功响应。
      *
-     * @param data 响应数据
+     * @param result 响应数据
      * @param <T>  响应数据类型
      * @return 成功响应
      */
-    public static <T> ApiResult<T> success(T data) {
-        return new ApiResult<>(ErrorCode.SUCCESS.getCode(), ErrorCode.SUCCESS.getMessage(), data);
+    public static <T> CommonResult<T> success(T result) {
+        return new CommonResult<>(ErrorCode.SUCCESS.getCode(), ErrorCode.SUCCESS.getMessage(), result);
     }
 
     /**
@@ -60,7 +60,7 @@ public class ApiResult<T> {
      * @param <T>       响应数据类型
      * @return 失败响应
      */
-    public static <T> ApiResult<T> fail(ErrorCode errorCode) {
+    public static <T> CommonResult<T> fail(ErrorCode errorCode) {
         return fail(errorCode.getCode(), errorCode.getMessage(), null);
     }
 
@@ -72,7 +72,7 @@ public class ApiResult<T> {
      * @param <T>       响应数据类型
      * @return 失败响应
      */
-    public static <T> ApiResult<T> fail(ErrorCode errorCode, String message) {
+    public static <T> CommonResult<T> fail(ErrorCode errorCode, String message) {
         return fail(errorCode.getCode(), message, null);
     }
 
@@ -84,7 +84,7 @@ public class ApiResult<T> {
      * @param <T>     响应数据类型
      * @return 失败响应
      */
-    public static <T> ApiResult<T> fail(String code, String message) {
+    public static <T> CommonResult<T> fail(long code, String message) {
         return fail(code, message, null);
     }
 
@@ -93,11 +93,11 @@ public class ApiResult<T> {
      *
      * @param code    业务状态码
      * @param message 错误提示
-     * @param data    扩展响应数据
+     * @param result  扩展响应数据
      * @param <T>     响应数据类型
      * @return 失败响应
      */
-    public static <T> ApiResult<T> fail(String code, String message, T data) {
-        return new ApiResult<>(code, message, data);
+    public static <T> CommonResult<T> fail(long code, String message, T result) {
+        return new CommonResult<>(code, message, result);
     }
 }

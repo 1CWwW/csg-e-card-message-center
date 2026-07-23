@@ -1459,14 +1459,6 @@ public class MessagePushServiceImpl implements MessagePushService {
                                                       boolean requireAllRequired) {
         Map<String, JsonNode> values = new LinkedHashMap<>();
         rawValues.forEach((key, value) -> values.put(key, objectMapper.valueToTree(value)));
-        Set<String> definedNames = definitions.stream()
-                .map(MsgSceneParam::getParamName)
-                .collect(Collectors.toSet());
-        for (String providedName : values.keySet()) {
-            if (!definedNames.contains(providedName)) {
-                throw new BizException(ErrorCode.PARAM_ERROR, "场景参数未定义：" + providedName);
-            }
-        }
         if (requireAllRequired) {
             List<String> missingRequiredNames = definitions.stream()
                     .filter(item -> Integer.valueOf(1).equals(item.getIsRequired()))

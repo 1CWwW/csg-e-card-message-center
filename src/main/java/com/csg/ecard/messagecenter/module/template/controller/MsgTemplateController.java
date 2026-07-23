@@ -1,7 +1,7 @@
 package com.csg.ecard.messagecenter.module.template.controller;
 
 import com.csg.ecard.messagecenter.common.page.PageResult;
-import com.csg.ecard.messagecenter.common.result.ApiResult;
+import com.csg.ecard.messagecenter.common.result.CommonResult;
 import com.csg.ecard.messagecenter.module.template.dto.TemplateCopyDTO;
 import com.csg.ecard.messagecenter.module.template.dto.TemplateContentSaveDTO;
 import com.csg.ecard.messagecenter.module.template.dto.TemplateCreateDTO;
@@ -50,85 +50,85 @@ public class MsgTemplateController {
 
     @GetMapping("/list")
     @Operation(summary = "模板分页查询")
-    public ApiResult<PageResult<TemplateListVO>> list(@ParameterObject @Valid TemplatePageQueryDTO query) {
-        return ApiResult.success(msgTemplateService.page(query));
+    public CommonResult<PageResult<TemplateListVO>> list(@ParameterObject @Valid TemplatePageQueryDTO query) {
+        return CommonResult.success(msgTemplateService.page(query));
     }
 
     @GetMapping("/reference-list")
     @Operation(summary = "参考模板分页查询")
-    public ApiResult<PageResult<TemplateReferenceListVO>> referenceList(
+    public CommonResult<PageResult<TemplateReferenceListVO>> referenceList(
             @ParameterObject @Valid TemplateReferencePageQueryDTO query) {
-        return ApiResult.success(msgTemplateService.referencePage(query));
+        return CommonResult.success(msgTemplateService.referencePage(query));
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "模板详情查询")
-    public ApiResult<TemplateDetailVO> detail(@PathVariable Long id) {
-        return ApiResult.success(msgTemplateService.detail(id));
+    public CommonResult<TemplateDetailVO> detail(@PathVariable Long id) {
+        return CommonResult.success(msgTemplateService.detail(id));
     }
 
     @PostMapping
     @Operation(summary = "新增模板")
-    public ApiResult<TemplateDetailVO> create(@RequestBody @Valid TemplateCreateDTO request) {
-        return ApiResult.success(msgTemplateService.create(request));
+    public CommonResult<TemplateDetailVO> create(@RequestBody @Valid TemplateCreateDTO request) {
+        return CommonResult.success(msgTemplateService.create(request));
     }
 
     @PostMapping("/preview")
     @Operation(summary = "预览模板正文")
-    public ApiResult<TemplatePreviewVO> preview(@RequestBody @Valid TemplatePreviewDTO request) {
-        return ApiResult.success(msgTemplateService.preview(request));
+    public CommonResult<TemplatePreviewVO> preview(@RequestBody @Valid TemplatePreviewDTO request) {
+        return CommonResult.success(msgTemplateService.preview(request));
     }
 
     @PutMapping("/{id}")
     @Operation(summary = "编辑模板基础信息")
-    public ApiResult<TemplateDetailVO> update(@PathVariable Long id,
+    public CommonResult<TemplateDetailVO> update(@PathVariable Long id,
                                                @RequestBody @Valid TemplateUpdateDTO request) {
-        return ApiResult.success(msgTemplateService.update(id, request));
+        return CommonResult.success(msgTemplateService.update(id, request));
     }
 
     @DeleteMapping("/{id}")
     @Operation(summary = "删除模板")
-    public ApiResult<Void> delete(@PathVariable Long id) {
+    public CommonResult<Void> delete(@PathVariable Long id) {
         msgTemplateService.delete(id);
-        return ApiResult.success();
+        return CommonResult.success();
     }
 
     @PutMapping("/{id}/toggle")
     @Operation(summary = "模板启停切换")
-    public ApiResult<TemplateDetailVO> toggle(@PathVariable Long id) {
-        return ApiResult.success(msgTemplateService.toggle(id));
+    public CommonResult<TemplateDetailVO> toggle(@PathVariable Long id) {
+        return CommonResult.success(msgTemplateService.toggle(id));
     }
 
     @PostMapping("/{id}/copy")
     @Operation(summary = "复制模板")
-    public ApiResult<TemplateCopyVO> copy(@PathVariable Long id,
+    public CommonResult<TemplateCopyVO> copy(@PathVariable Long id,
                                           @RequestBody @Valid TemplateCopyDTO request) {
-        return ApiResult.success(msgTemplateService.copy(id, request));
+        return CommonResult.success(msgTemplateService.copy(id, request));
     }
 
     @PutMapping("/{id}/content")
     @Operation(summary = "保存模板Blockly内容")
-    public ApiResult<TemplateContentVO> saveContent(@PathVariable Long id,
+    public CommonResult<TemplateContentVO> saveContent(@PathVariable Long id,
                                                      @RequestBody @Valid TemplateContentSaveDTO request) {
-        return ApiResult.success(msgTemplateService.saveContent(id, request));
+        return CommonResult.success(msgTemplateService.saveContent(id, request));
     }
 
     @GetMapping("/{id}/toolbox")
     @Operation(summary = "获取模板场景参数工具箱")
-    public ApiResult<TemplateToolboxVO> toolbox(@PathVariable Long id) {
-        return ApiResult.success(msgTemplateService.toolbox(id));
+    public CommonResult<TemplateToolboxVO> toolbox(@PathVariable Long id) {
+        return CommonResult.success(msgTemplateService.toolbox(id));
     }
 
     @GetMapping("/{id}/references")
     @Operation(summary = "查询参考模板")
-    public ApiResult<List<TemplateReferenceVO>> references(@PathVariable Long id) {
-        return ApiResult.success(msgTemplateService.references(id));
+    public CommonResult<List<TemplateReferenceVO>> references(@PathVariable Long id) {
+        return CommonResult.success(msgTemplateService.references(id));
     }
 
     @GetMapping("/{id}/references/{referenceId}")
     @Operation(summary = "加载参考模板内容")
-    public ApiResult<TemplateReferenceDetailVO> referenceDetail(@PathVariable Long id,
+    public CommonResult<TemplateReferenceDetailVO> referenceDetail(@PathVariable Long id,
                                                                  @PathVariable Long referenceId) {
-        return ApiResult.success(msgTemplateService.referenceDetail(id, referenceId));
+        return CommonResult.success(msgTemplateService.referenceDetail(id, referenceId));
     }
 }

@@ -2,7 +2,7 @@ package com.csg.ecard.messagecenter.framework.handler;
 
 import com.csg.ecard.messagecenter.common.enums.ErrorCode;
 import com.csg.ecard.messagecenter.common.exception.BizException;
-import com.csg.ecard.messagecenter.common.result.ApiResult;
+import com.csg.ecard.messagecenter.common.result.CommonResult;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
@@ -38,9 +38,9 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(BizException.class)
     @ResponseStatus(HttpStatus.OK)
-    public ApiResult<Void> handleBizException(BizException ex) {
+    public CommonResult<Void> handleBizException(BizException ex) {
         log.warn("Business exception: {}", ex.getMessage());
-        return ApiResult.fail(ex.getCode(), ex.getMessage());
+        return CommonResult.fail(ex.getCode(), ex.getMessage());
     }
 
     /**
@@ -51,11 +51,11 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ApiResult<Void> handleMethodArgumentNotValid(MethodArgumentNotValidException ex) {
+    public CommonResult<Void> handleMethodArgumentNotValid(MethodArgumentNotValidException ex) {
         String message = ex.getBindingResult().getFieldErrors().stream()
                 .map(this::formatFieldError)
                 .collect(Collectors.joining("; "));
-        return ApiResult.fail(ErrorCode.PARAM_ERROR, message);
+        return CommonResult.fail(ErrorCode.PARAM_ERROR, message);
     }
 
     /**
@@ -66,11 +66,11 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(BindException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ApiResult<Void> handleBindException(BindException ex) {
+    public CommonResult<Void> handleBindException(BindException ex) {
         String message = ex.getBindingResult().getFieldErrors().stream()
                 .map(this::formatFieldError)
                 .collect(Collectors.joining("; "));
-        return ApiResult.fail(ErrorCode.PARAM_ERROR, message);
+        return CommonResult.fail(ErrorCode.PARAM_ERROR, message);
     }
 
     /**
@@ -81,11 +81,11 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(ConstraintViolationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ApiResult<Void> handleConstraintViolation(ConstraintViolationException ex) {
+    public CommonResult<Void> handleConstraintViolation(ConstraintViolationException ex) {
         String message = ex.getConstraintViolations().stream()
                 .map(item -> item.getPropertyPath() + " " + item.getMessage())
                 .collect(Collectors.joining("; "));
-        return ApiResult.fail(ErrorCode.PARAM_ERROR, message);
+        return CommonResult.fail(ErrorCode.PARAM_ERROR, message);
     }
 
     /**
@@ -101,9 +101,9 @@ public class GlobalExceptionHandler {
             IllegalArgumentException.class
     })
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ApiResult<Void> handleBadRequest(Exception ex) {
+    public CommonResult<Void> handleBadRequest(Exception ex) {
         log.warn("Bad request: {}", ex.getMessage());
-        return ApiResult.fail(ErrorCode.PARAM_ERROR, ex.getMessage());
+        return CommonResult.fail(ErrorCode.PARAM_ERROR, ex.getMessage());
     }
 
     /**
@@ -114,8 +114,8 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     @ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
-    public ApiResult<Void> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
-        return ApiResult.fail(ErrorCode.METHOD_NOT_ALLOWED, ex.getMessage());
+    public CommonResult<Void> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+        return CommonResult.fail(ErrorCode.METHOD_NOT_ALLOWED, ex.getMessage());
     }
 
     /**
@@ -126,9 +126,9 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(DataAccessException.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ApiResult<Void> handleDataAccessException(DataAccessException ex) {
+    public CommonResult<Void> handleDataAccessException(DataAccessException ex) {
         log.error("Database exception", ex);
-        return ApiResult.fail(ErrorCode.DATABASE_ERROR);
+        return CommonResult.fail(ErrorCode.DATABASE_ERROR);
     }
 
     /**
@@ -139,9 +139,9 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ApiResult<Void> handleException(Exception ex) {
+    public CommonResult<Void> handleException(Exception ex) {
         log.error("Unhandled exception", ex);
-        return ApiResult.fail(ErrorCode.SYSTEM_ERROR);
+        return CommonResult.fail(ErrorCode.SYSTEM_ERROR);
     }
 
     private String formatFieldError(FieldError fieldError) {

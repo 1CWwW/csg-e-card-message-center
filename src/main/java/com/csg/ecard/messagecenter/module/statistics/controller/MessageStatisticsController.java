@@ -1,6 +1,6 @@
 package com.csg.ecard.messagecenter.module.statistics.controller;
 
-import com.csg.ecard.messagecenter.common.result.ApiResult;
+import com.csg.ecard.messagecenter.common.result.CommonResult;
 import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsExportQueryDTO;
 import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsQueryDTO;
 import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsTimeQueryDTO;
@@ -54,49 +54,49 @@ public class MessageStatisticsController {
 
     @GetMapping("/overview")
     @Operation(summary = "消息统计总览", description = COMMON_DESCRIPTION)
-    public ApiResult<StatisticsOverviewVO> overview(
+    public CommonResult<StatisticsOverviewVO> overview(
             @ParameterObject @Valid MessageStatisticsQueryDTO query) {
-        return ApiResult.success(messageStatisticsService.overview(query));
+        return CommonResult.success(messageStatisticsService.overview(query));
     }
 
     @GetMapping("/time")
     @Operation(summary = "按时间统计消息发送量",
             description = COMMON_DESCRIPTION + "TIME维度支持DAY、WEEK、MONTH，缺失时间段由服务端补齐。")
-    public ApiResult<StatisticsTimeVO> time(
+    public CommonResult<StatisticsTimeVO> time(
             @ParameterObject @Valid MessageStatisticsTimeQueryDTO query) {
-        return ApiResult.success(messageStatisticsService.time(query));
+        return CommonResult.success(messageStatisticsService.time(query));
     }
 
     @GetMapping("/channel")
     @Operation(summary = "按渠道类型统计消息发送量",
             description = COMMON_DESCRIPTION + "当前按渠道类型统计，不按具体channelId统计。")
-    public ApiResult<StatisticsChannelVO> channel(
+    public CommonResult<StatisticsChannelVO> channel(
             @ParameterObject @Valid MessageStatisticsQueryDTO query) {
-        return ApiResult.success(messageStatisticsService.channel(query));
+        return CommonResult.success(messageStatisticsService.channel(query));
     }
 
     @GetMapping("/scene")
     @Operation(summary = "按场景统计消息发送量",
             description = COMMON_DESCRIPTION + "场景信息通过一次关联查询获取，已删除或停用场景不影响历史消息统计。")
-    public ApiResult<StatisticsSceneVO> scene(
+    public CommonResult<StatisticsSceneVO> scene(
             @ParameterObject @Valid MessageStatisticsQueryDTO query) {
-        return ApiResult.success(messageStatisticsService.scene(query));
+        return CommonResult.success(messageStatisticsService.scene(query));
     }
 
     @GetMapping("/unit")
     @Operation(summary = "按单位统计消息发送量",
             description = COMMON_DESCRIPTION + "单位统计当前仅基于msg_record.user_org_id，不支持组织层级和子单位，不接入员工中心。")
-    public ApiResult<StatisticsUnitVO> unit(
+    public CommonResult<StatisticsUnitVO> unit(
             @ParameterObject @Valid MessageStatisticsQueryDTO query) {
-        return ApiResult.success(messageStatisticsService.unit(query));
+        return CommonResult.success(messageStatisticsService.unit(query));
     }
 
     @GetMapping("/template")
     @Operation(summary = "按模板统计消息发送量",
             description = COMMON_DESCRIPTION + "模板和场景信息通过一次关联查询获取，已删除或停用数据不影响历史消息统计。")
-    public ApiResult<StatisticsTemplateVO> template(
+    public CommonResult<StatisticsTemplateVO> template(
             @ParameterObject @Valid MessageStatisticsQueryDTO query) {
-        return ApiResult.success(messageStatisticsService.template(query));
+        return CommonResult.success(messageStatisticsService.template(query));
     }
 
     @GetMapping("/export")

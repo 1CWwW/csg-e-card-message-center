@@ -6,7 +6,7 @@ import com.csg.ecard.messagecenter.common.enums.ErrorCode;
 import com.csg.ecard.messagecenter.common.exception.BizException;
 import com.csg.ecard.messagecenter.common.page.PageRequest;
 import com.csg.ecard.messagecenter.common.page.PageResult;
-import com.csg.ecard.messagecenter.common.result.ApiResult;
+import com.csg.ecard.messagecenter.common.result.CommonResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.csg.ecard.messagecenter.common.utils.MessageIdGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -75,29 +75,32 @@ class CommonModelTest {
         scene.setTemplateCount(0L);
         PageResult<MsgSceneVO> pageResult = PageResult.of(List.of(scene), 1L, 1, 20);
 
-        JsonNode root = new ObjectMapper().valueToTree(ApiResult.success(pageResult));
-        JsonNode first = root.path("data").path("list").get(0);
+        JsonNode root = new ObjectMapper().valueToTree(CommonResult.success(pageResult));
+        JsonNode first = root.path("result").path("list").get(0);
 
         assertThat(first.path("id").isTextual()).isTrue();
         assertThat(first.path("id").asText()).isEqualTo("9007199254740993");
         assertThat(first.path("paramCount").isNumber()).isTrue();
         assertThat(first.path("templateCount").isNumber()).isTrue();
         assertThat(first.path("status").isNumber()).isTrue();
-        assertThat(root.path("data").path("total").isNumber()).isTrue();
+        assertThat(root.path("result").path("total").isNumber()).isTrue();
     }
 
     @Test
     void shouldSerializeSuccessResultWithoutTraceIdAndTimestamp() {
-        JsonNode root = new ObjectMapper().valueToTree(ApiResult.success("ok"));
+        JsonNode root = new ObjectMapper().valueToTree(CommonResult.success("ok"));
 
         assertThat(root.has("traceId")).isFalse();
         assertThat(root.has("timestamp")).isFalse();
-        assertThat(root.path("code").asText()).isEqualTo(ErrorCode.SUCCESS.getCode());
+        assertThat(root.path("code").isIntegralNumber()).isTrue();
+        assertThat(root.path("code").asLong()).isEqualTo(ErrorCode.SUCCESS.getCode());
+        assertThat(root.path("result").asText()).isEqualTo("ok");
+        assertThat(root.has("data")).isFalse();
     }
 
     @Test
     void shouldSerializeBizExceptionResultWithoutTraceId() {
-        ApiResult<Void> result = new GlobalExceptionHandler()
+        CommonResult<Void> result = new GlobalExceptionHandler()
                 .handleBizException(new BizException(ErrorCode.DATA_NOT_FOUND));
 
         JsonNode root = new ObjectMapper().valueToTree(result);
@@ -112,7 +115,7 @@ class CommonModelTest {
         bindingResult.addError(new FieldError("request", "pageNum", "pageNum不能为空"));
         BindException bindException = new BindException(bindingResult);
 
-        ApiResult<Void> result = new GlobalExceptionHandler().handleBindException(bindException);
+        CommonResult<Void> result = new GlobalExceptionHandler().handleBindException(bindException);
         JsonNode root = new ObjectMapper().valueToTree(result);
 
         assertThat(root.has("traceId")).isFalse();

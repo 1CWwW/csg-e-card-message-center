@@ -11,7 +11,7 @@ import lombok.Getter;
 @Getter
 public class BizException extends RuntimeException {
 
-    private final String code;
+    private final long code;
 
     /**
      * 使用标准错误码创建业务异常。
@@ -40,7 +40,7 @@ public class BizException extends RuntimeException {
      * @param code    业务状态码
      * @param message 错误提示
      */
-    public BizException(String code, String message) {
+    public BizException(long code, String message) {
         super(message);
         this.code = code;
     }

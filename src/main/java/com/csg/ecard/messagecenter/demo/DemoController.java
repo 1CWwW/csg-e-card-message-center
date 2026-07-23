@@ -2,7 +2,7 @@ package com.csg.ecard.messagecenter.demo;
 
 import com.csg.ecard.messagecenter.common.enums.ErrorCode;
 import com.csg.ecard.messagecenter.common.exception.BizException;
-import com.csg.ecard.messagecenter.common.result.ApiResult;
+import com.csg.ecard.messagecenter.common.result.CommonResult;
 import com.csg.ecard.messagecenter.common.utils.IdempotentService;
 import com.csg.ecard.messagecenter.common.utils.MessageIdGenerator;
 import com.csg.ecard.messagecenter.common.utils.RabbitMessageSender;
@@ -49,8 +49,8 @@ public class DemoController {
      */
     @GetMapping("/ping")
     @Operation(summary = "服务启动验证")
-    public ApiResult<Map<String, Object>> ping() {
-        return ApiResult.success(Map.of(
+    public CommonResult<Map<String, Object>> ping() {
+        return CommonResult.success(Map.of(
                 "service", "csg-e-card-message-center",
                 "status", "UP"
         ));
@@ -63,7 +63,7 @@ public class DemoController {
      */
     @GetMapping("/exception")
     @Operation(summary = "全局异常验证")
-    public ApiResult<Void> exception() {
+    public CommonResult<Void> exception() {
         throw new BizException(ErrorCode.BUSINESS_ERROR, "Demo业务异常");
     }
 
@@ -75,8 +75,8 @@ public class DemoController {
      */
     @GetMapping("/validate")
     @Operation(summary = "参数校验验证")
-    public ApiResult<String> validate(@RequestParam @NotBlank(message = "name不能为空") String name) {
-        return ApiResult.success("hello " + name);
+    public CommonResult<String> validate(@RequestParam @NotBlank(message = "name不能为空") String name) {
+        return CommonResult.success("hello " + name);
     }
 
     /**
@@ -87,8 +87,8 @@ public class DemoController {
      */
     @PostMapping("/validate-body")
     @Operation(summary = "请求体参数校验验证")
-    public ApiResult<DemoValidateRequest> validateBody(@RequestBody @Valid DemoValidateRequest request) {
-        return ApiResult.success(request);
+    public CommonResult<DemoValidateRequest> validateBody(@RequestBody @Valid DemoValidateRequest request) {
+        return CommonResult.success(request);
     }
 
     /**
@@ -100,11 +100,11 @@ public class DemoController {
      */
     @GetMapping("/redis")
     @Operation(summary = "Redis读写验证")
-    public ApiResult<Map<String, Object>> redis(@RequestParam(defaultValue = "demo:message-center") String key,
+    public CommonResult<Map<String, Object>> redis(@RequestParam(defaultValue = "demo:message-center") String key,
                                                 @RequestParam(defaultValue = "ok") String value) {
         redisUtil.set(key, value, Duration.ofMinutes(5));
         Object cached = redisUtil.get(key);
-        return ApiResult.success(Map.of("key", key, "value", cached));
+        return CommonResult.success(Map.of("key", key, "value", cached));
     }
 
     /**
@@ -117,13 +117,13 @@ public class DemoController {
      */
     @PostMapping("/rabbitmq")
     @Operation(summary = "RabbitMQ发送验证")
-    public ApiResult<Map<String, Object>> rabbitmq(@RequestParam String exchange,
+    public CommonResult<Map<String, Object>> rabbitmq(@RequestParam String exchange,
                                                    @RequestParam String routingKey,
                                                    @RequestBody(required = false) Map<String, Object> body) {
         Map<String, Object> message = body == null ? new HashMap<>() : new HashMap<>(body);
         message.putIfAbsent("source", "demo");
         String correlationId = rabbitMessageSender.send(exchange, routingKey, message);
-        return ApiResult.success(Map.of("correlationId", correlationId));
+        return CommonResult.success(Map.of("correlationId", correlationId));
     }
 
     /**
@@ -134,7 +134,7 @@ public class DemoController {
      */
     @GetMapping("/db")
     @Operation(summary = "达梦数据库连接验证")
-    public ApiResult<Map<String, Object>> db() throws Exception {
+    public CommonResult<Map<String, Object>> db() throws Exception {
         Map<String, Object> result = new HashMap<>();
         try (Connection connection = dataSource.getConnection()) {
             DatabaseMetaData metaData = connection.getMetaData();
@@ -144,7 +144,7 @@ public class DemoController {
             result.put("schema", readSchema(connection));
             result.put("valid", connection.isValid(3));
         }
-        return ApiResult.success(result);
+        return CommonResult.success(result);
     }
 
     private String readSchema(Connection connection) {
@@ -162,8 +162,8 @@ public class DemoController {
      */
     @GetMapping("/message-id")
     @Operation(summary = "消息ID生成验证")
-    public ApiResult<Map<String, Object>> messageId() {
-        return ApiResult.success(Map.of("messageId", messageIdGenerator.nextId()));
+    public CommonResult<Map<String, Object>> messageId() {
+        return CommonResult.success(Map.of("messageId", messageIdGenerator.nextId()));
     }
 
     /**
@@ -174,8 +174,8 @@ public class DemoController {
      */
     @GetMapping("/idempotent")
     @Operation(summary = "幂等占位能力验证")
-    public ApiResult<Map<String, Object>> idempotent(@RequestParam @NotBlank String bizKey) {
+    public CommonResult<Map<String, Object>> idempotent(@RequestParam @NotBlank String bizKey) {
         boolean acquired = idempotentService.tryAcquire(bizKey);
-        return ApiResult.success(Map.of("bizKey", bizKey, "acquired", acquired));
+        return CommonResult.success(Map.of("bizKey", bizKey, "acquired", acquired));
     }
 }
