@@ -18,6 +18,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import javax.annotation.Resource;
 import java.time.Instant;
 import java.util.List;
 
@@ -38,6 +39,9 @@ public class ElinkChannelSender implements ChannelSender {
     private final RestTemplateBuilder restTemplateBuilder;
     private volatile String accessToken;
     private volatile Instant accessTokenExpireAt = Instant.EPOCH;
+
+    @Resource(name = "httpsRestTemplate")
+    private RestTemplate restTemplate;
 
     public ElinkChannelSender(MessageSendProperties properties, RestTemplateBuilder restTemplateBuilder) {
         this.properties = properties;
@@ -75,7 +79,6 @@ public class ElinkChannelSender implements ChannelSender {
                                             MessageSendProperties.Elink elink,
                                             String receiveUserId,
                                             boolean tokenRefreshed) {
-        RestTemplate restTemplate = restTemplate(elink);
         String requestUrl = UriComponentsBuilder.fromUriString(resolveSendUrl(elink))
                 .queryParam("access_token", getAccessToken(elink, restTemplate))
                 .toUriString();
@@ -160,12 +163,7 @@ public class ElinkChannelSender implements ChannelSender {
         accessTokenExpireAt = Instant.EPOCH;
     }
 
-    private RestTemplate restTemplate(MessageSendProperties.Elink elink) {
-        return restTemplateBuilder
-                .setConnectTimeout(elink.getConnectTimeout())
-                .setReadTimeout(elink.getReadTimeout())
-                .build();
-    }
+
 
     private HttpHeaders jsonHeaders() {
         HttpHeaders headers = new HttpHeaders();
