@@ -12,7 +12,7 @@ import org.apache.poi.ss.usermodel.Font;
 import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -40,9 +40,7 @@ public class MessageRecordExcelExporter {
      * 将消息记录写为真正的 xlsx 文件。
      */
     public void write(List<MessageRecordExportRow> rows, OutputStream outputStream) throws IOException {
-        SXSSFWorkbook workbook = new SXSSFWorkbook(100);
-        workbook.setCompressTempFiles(true);
-        try {
+        try (XSSFWorkbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet("消息记录");
             CellStyle headerStyle = createHeaderStyle(workbook);
             CellStyle textStyle = createTextStyle(workbook);
@@ -72,9 +70,6 @@ public class MessageRecordExcelExporter {
             setColumnWidths(sheet);
             workbook.write(outputStream);
             outputStream.flush();
-        } finally {
-            workbook.dispose();
-            workbook.close();
         }
     }
 
@@ -156,7 +151,7 @@ public class MessageRecordExcelExporter {
         }
     }
 
-    private CellStyle createHeaderStyle(SXSSFWorkbook workbook) {
+    private CellStyle createHeaderStyle(XSSFWorkbook workbook) {
         CellStyle style = workbook.createCellStyle();
         style.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
@@ -166,7 +161,7 @@ public class MessageRecordExcelExporter {
         return style;
     }
 
-    private CellStyle createTextStyle(SXSSFWorkbook workbook) {
+    private CellStyle createTextStyle(XSSFWorkbook workbook) {
         CellStyle style = workbook.createCellStyle();
         style.setDataFormat(workbook.createDataFormat().getFormat("@"));
         style.setWrapText(true);

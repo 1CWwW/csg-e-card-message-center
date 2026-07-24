@@ -13,7 +13,7 @@ import org.apache.poi.ss.usermodel.Font;
 import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -37,9 +37,7 @@ public class MessageStatisticsExcelExporter {
      * 将统计结果写为xlsx文件。
      */
     public void write(StatisticsDimension dimension, Object data, OutputStream outputStream) throws IOException {
-        SXSSFWorkbook workbook = new SXSSFWorkbook(100);
-        workbook.setCompressTempFiles(true);
-        try {
+        try (XSSFWorkbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet("消息统计");
             CellStyle headerStyle = createHeaderStyle(workbook);
             CellStyle textStyle = createTextStyle(workbook);
@@ -54,9 +52,6 @@ public class MessageStatisticsExcelExporter {
             autoWidth(sheet, headerCount(dimension));
             workbook.write(outputStream);
             outputStream.flush();
-        } finally {
-            workbook.dispose();
-            workbook.close();
         }
     }
 
@@ -164,7 +159,7 @@ public class MessageStatisticsExcelExporter {
         return value;
     }
 
-    private CellStyle createHeaderStyle(SXSSFWorkbook workbook) {
+    private CellStyle createHeaderStyle(XSSFWorkbook workbook) {
         CellStyle style = workbook.createCellStyle();
         style.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
@@ -174,7 +169,7 @@ public class MessageStatisticsExcelExporter {
         return style;
     }
 
-    private CellStyle createTextStyle(SXSSFWorkbook workbook) {
+    private CellStyle createTextStyle(XSSFWorkbook workbook) {
         CellStyle style = workbook.createCellStyle();
         style.setDataFormat(workbook.createDataFormat().getFormat("@"));
         return style;
