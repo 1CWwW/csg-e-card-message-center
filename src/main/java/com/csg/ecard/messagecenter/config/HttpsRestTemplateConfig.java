@@ -25,7 +25,7 @@ import java.security.NoSuchAlgorithmException;
  * 配置https 的resttemplate
  * @author Miiarms
  * @version 1.0
- * @data 2021/7/7
+ * @date 2021/7/7
  */
 @Configuration
 public class HttpsRestTemplateConfig {
