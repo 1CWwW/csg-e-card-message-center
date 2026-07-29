@@ -15,6 +15,22 @@ import java.util.List;
 public interface MsgChannelMapper extends BaseMapper<MsgChannel> {
 
     /**
+     * 按渠道类型聚合未删除渠道数量。
+     *
+     * @return 渠道概览聚合结果
+     */
+    @Select({
+            "SELECT",
+            "COALESCE(SUM(CASE WHEN c.channel_type = 'SMS' THEN 1 ELSE 0 END), 0) AS smsCount,",
+            "COALESCE(SUM(CASE WHEN c.channel_type = 'EMAIL' THEN 1 ELSE 0 END), 0) AS emailCount,",
+            "COALESCE(SUM(CASE WHEN c.channel_type = 'ELINK' THEN 1 ELSE 0 END), 0) AS elinkCount,",
+            "COALESCE(SUM(CASE WHEN c.channel_type = 'IN_APP' THEN 1 ELSE 0 END), 0) AS inAppCount",
+            "FROM msg_channel c",
+            "WHERE c.deleted = 0"
+    })
+    ChannelOverviewRow selectOverview();
+
+    /**
      * 分页查询渠道，支持单位关联筛选。
      *
      * @param page  分页对象

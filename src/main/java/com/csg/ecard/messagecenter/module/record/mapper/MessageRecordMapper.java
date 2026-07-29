@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 消息记录查询数据访问接口。
@@ -40,6 +41,52 @@ public interface MessageRecordMapper extends BaseMapper<MsgRecord> {
     MessageRecordOverviewRow selectOverview(@Param("yesterdayStart") LocalDateTime yesterdayStart,
                                             @Param("todayStart") LocalDateTime todayStart,
                                             @Param("tomorrowStart") LocalDateTime tomorrowStart);
+
+    /**
+     * 查询消息记录中实际存在的场景筛选项。
+     */
+    @Select({
+            "SELECT DISTINCT",
+            "r.scene_code AS optionValue,",
+            "COALESCE(s.scene_name, r.scene_code) AS optionLabel",
+            "FROM msg_record r",
+            "LEFT JOIN msg_scene s ON s.scene_code = r.scene_code AND s.deleted = 0",
+            "WHERE r.deleted = 0 AND r.scene_code IS NOT NULL",
+            "ORDER BY 2, 1"
+    })
+    List<MessageRecordFilterOptionRow> selectSceneFilterOptions();
+
+    /**
+     * 查询消息记录中实际存在的渠道筛选项。
+     */
+    @Select({
+            "<script>",
+            "SELECT DISTINCT",
+            "TO_CHAR(r.channel_id) AS optionValue,",
+            "c.channel_name AS optionLabel",
+            "FROM msg_record r",
+            "INNER JOIN msg_channel c ON c.id = r.channel_id AND c.deleted = 0",
+            "WHERE r.deleted = 0 AND r.channel_id IS NOT NULL",
+            "<if test='channelType != null'>AND c.channel_type = #{channelType}</if>",
+            "ORDER BY 2, 1",
+            "</script>"
+    })
+    List<MessageRecordFilterOptionRow> selectChannelFilterOptions(
+            @Param("channelType") String channelType);
+
+    /**
+     * 查询消息记录中实际存在的模板筛选项。
+     */
+    @Select({
+            "SELECT DISTINCT",
+            "TO_CHAR(r.template_id) AS optionValue,",
+            "t.template_name AS optionLabel",
+            "FROM msg_record r",
+            "INNER JOIN msg_template t ON t.id = r.template_id AND t.deleted = 0",
+            "WHERE r.deleted = 0 AND r.template_id IS NOT NULL",
+            "ORDER BY 2, 1"
+    })
+    List<MessageRecordFilterOptionRow> selectTemplateFilterOptions();
 
     /**
      * 分页查询消息记录及关联名称。

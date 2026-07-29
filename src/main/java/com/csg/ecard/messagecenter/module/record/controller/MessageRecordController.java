@@ -3,10 +3,12 @@ package com.csg.ecard.messagecenter.module.record.controller;
 import com.csg.ecard.messagecenter.common.result.CommonResult;
 import com.csg.ecard.messagecenter.module.record.dto.MessageRecordFilterDTO;
 import com.csg.ecard.messagecenter.module.record.dto.MessageRecordPageQueryDTO;
+import com.csg.ecard.messagecenter.module.record.enums.MessageRecordFilterType;
 import com.csg.ecard.messagecenter.module.record.export.MessageRecordExcelExporter;
 import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordExportRow;
 import com.csg.ecard.messagecenter.module.record.service.MessageRecordService;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordDetailVO;
+import com.csg.ecard.messagecenter.module.record.vo.MessageRecordFilterOptionVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordOverviewVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordPageResult;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordResendLogVO;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
@@ -55,6 +58,26 @@ public class MessageRecordController {
             description = "按服务器当前日期和记录创建时间统计今日、昨日数量及成功率")
     public CommonResult<MessageRecordOverviewVO> overview() {
         return CommonResult.success(messageRecordService.overview());
+    }
+
+    /**
+     * 按需查询消息记录筛选项。
+     *
+     * @param type        筛选项类型编码
+     * @param channelType 渠道类型，仅查询渠道选项时生效
+     * @return 筛选项列表
+     */
+    @GetMapping("/filter-options")
+    @Operation(summary = "消息记录筛选项查询",
+            description = "下拉框首次展开时按需调用；type支持scene、channel、template")
+    public CommonResult<List<MessageRecordFilterOptionVO>> filterOptions(
+            @Parameter(description = "筛选项类型：scene、channel、template", required = true)
+            @RequestParam String type,
+            @Parameter(description = "渠道类型：SMS、EMAIL、ELINK、IN_APP；仅type=channel时生效")
+            @RequestParam(required = false) String channelType) {
+        return CommonResult.success(
+                messageRecordService.filterOptions(
+                        MessageRecordFilterType.fromCode(type), channelType));
     }
 
     @GetMapping("/list")

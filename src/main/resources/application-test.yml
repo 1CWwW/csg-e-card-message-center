@@ -106,3 +106,7 @@ public:
     service: e-jadp-service
     service.contextPath: e-jadp
     service.url:
+
+message-center:
+  permission:
+    jadp-url: http://e-card-jadp-service:8081/web

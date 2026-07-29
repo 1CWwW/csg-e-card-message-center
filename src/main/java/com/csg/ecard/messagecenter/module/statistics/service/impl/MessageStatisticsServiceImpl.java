@@ -9,11 +9,13 @@ import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsQueryD
 import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsTimeQueryDTO;
 import com.csg.ecard.messagecenter.module.statistics.enums.StatisticsDimension;
 import com.csg.ecard.messagecenter.module.statistics.enums.StatisticsExportScope;
+import com.csg.ecard.messagecenter.module.statistics.enums.StatisticsFilterType;
 import com.csg.ecard.messagecenter.module.statistics.enums.StatisticsGranularity;
 import com.csg.ecard.messagecenter.module.statistics.mapper.MessageStatisticsMapper;
 import com.csg.ecard.messagecenter.module.statistics.mapper.MessageStatisticsQueryCriteria;
 import com.csg.ecard.messagecenter.module.statistics.mapper.StatisticsChannelRow;
 import com.csg.ecard.messagecenter.module.statistics.mapper.StatisticsCountRow;
+import com.csg.ecard.messagecenter.module.statistics.mapper.StatisticsFilterOptionRow;
 import com.csg.ecard.messagecenter.module.statistics.mapper.StatisticsOverviewRow;
 import com.csg.ecard.messagecenter.module.statistics.mapper.StatisticsSceneRow;
 import com.csg.ecard.messagecenter.module.statistics.mapper.StatisticsTemplateRow;
@@ -22,6 +24,7 @@ import com.csg.ecard.messagecenter.module.statistics.mapper.StatisticsUnitRow;
 import com.csg.ecard.messagecenter.module.statistics.service.MessageStatisticsService;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsChannelItemVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsChannelVO;
+import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsFilterOptionVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsOverviewVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsSceneItemVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsSceneVO;
@@ -64,6 +67,18 @@ public class MessageStatisticsServiceImpl implements MessageStatisticsService {
     private static final String UNKNOWN_TEXT = "-";
 
     private final MessageStatisticsMapper messageStatisticsMapper;
+
+    @Override
+    public List<StatisticsFilterOptionVO> filterOptions(StatisticsFilterType type) {
+        if (type == null) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "type不能为空");
+        }
+        List<StatisticsFilterOptionRow> rows = switch (type) {
+            case SCENE -> messageStatisticsMapper.selectSceneFilterOptions();
+            case TEMPLATE -> messageStatisticsMapper.selectTemplateFilterOptions();
+        };
+        return rows.stream().map(this::toFilterOption).toList();
+    }
 
     @Override
     public StatisticsOverviewVO overview(MessageStatisticsQueryDTO query) {
@@ -373,6 +388,13 @@ public class MessageStatisticsServiceImpl implements MessageStatisticsService {
         item.setChannelTypeDesc(channelTypeDesc(row.getChannelType()));
         item.setPercentage(rate(item.getTotalCount(), totalCount));
         return item;
+    }
+
+    private StatisticsFilterOptionVO toFilterOption(StatisticsFilterOptionRow row) {
+        StatisticsFilterOptionVO option = new StatisticsFilterOptionVO();
+        option.setValue(row.getOptionValue());
+        option.setLabel(row.getOptionLabel());
+        return option;
     }
 
     private StatisticsSceneItemVO toSceneItem(StatisticsSceneRow row, long totalCount) {

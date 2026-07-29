@@ -17,11 +17,13 @@ import com.csg.ecard.messagecenter.module.scene.enums.SceneModule;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneMapper;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneParamMapper;
 import com.csg.ecard.messagecenter.module.scene.mapper.SceneParamCountResult;
+import com.csg.ecard.messagecenter.module.scene.mapper.SceneOverviewRow;
 import com.csg.ecard.messagecenter.module.scene.mapper.SceneTemplateCountResult;
 import com.csg.ecard.messagecenter.module.scene.service.MsgSceneService;
 import com.csg.ecard.messagecenter.module.scene.vo.MsgSceneVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneCodeCheckVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneDisableCheckVO;
+import com.csg.ecard.messagecenter.module.scene.vo.SceneOverviewVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -47,6 +49,18 @@ public class MsgSceneServiceImpl implements MsgSceneService {
     private static final String SORT_ORDER_DESC = "desc";
     private final MsgSceneMapper msgSceneMapper;
     private final MsgSceneParamMapper msgSceneParamMapper;
+
+    @Override
+    public SceneOverviewVO overview() {
+        SceneOverviewRow row = msgSceneMapper.selectOverview();
+        SceneOverviewVO vo = new SceneOverviewVO();
+        vo.setTotal(value(row == null ? null : row.getTotal()));
+        vo.setActiveCount(value(row == null ? null : row.getActiveCount()));
+        vo.setParamTotal(value(row == null ? null : row.getParamTotal()));
+        vo.setTemplateTotal(value(row == null ? null : row.getTemplateTotal()));
+        vo.setAssociatedSceneCount(value(row == null ? null : row.getAssociatedSceneCount()));
+        return vo;
+    }
 
     @Override
     public PageResult<MsgSceneVO> page(ScenePageQueryDTO query) {
@@ -385,5 +399,9 @@ public class MsgSceneServiceImpl implements MsgSceneService {
 
     private String resolveStatusDesc(Integer status) {
         return status == null ? null : CommonStatus.fromCode(status).getDesc();
+    }
+
+    private long value(Long value) {
+        return value == null ? 0L : value;
     }
 }

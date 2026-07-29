@@ -6,6 +6,7 @@ import com.csg.ecard.messagecenter.module.channel.dto.ChannelCreateDTO;
 import com.csg.ecard.messagecenter.module.channel.dto.ChannelPageQueryDTO;
 import com.csg.ecard.messagecenter.module.channel.dto.ChannelUpdateDTO;
 import com.csg.ecard.messagecenter.module.channel.service.MsgChannelService;
+import com.csg.ecard.messagecenter.module.channel.vo.ChannelOverviewVO;
 import com.csg.ecard.messagecenter.module.channel.vo.MsgChannelVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,6 +34,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class MsgChannelController {
 
     private final MsgChannelService msgChannelService;
+
+    /**
+     * 查询渠道概览。
+     *
+     * @return 渠道概览
+     */
+    @GetMapping("/overview")
+    @Operation(summary = "渠道概览查询",
+            description = "按渠道类型统计未删除渠道数量")
+    public CommonResult<ChannelOverviewVO> overview() {
+        return CommonResult.success(msgChannelService.overview());
+    }
 
     /**
      * 分页查询渠道。

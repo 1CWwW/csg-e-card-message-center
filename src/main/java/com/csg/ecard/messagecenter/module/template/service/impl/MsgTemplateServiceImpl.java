@@ -31,12 +31,15 @@ import com.csg.ecard.messagecenter.module.template.entity.MsgTemplate;
 import com.csg.ecard.messagecenter.module.template.entity.MsgTemplateUnit;
 import com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateMapper;
 import com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateUnitMapper;
+import com.csg.ecard.messagecenter.module.template.mapper.TemplateOverviewRow;
 import com.csg.ecard.messagecenter.module.template.mapper.TemplateQueryRow;
 import com.csg.ecard.messagecenter.module.template.service.MsgTemplateService;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateCopyVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateContentVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateDetailVO;
+import com.csg.ecard.messagecenter.module.template.vo.TemplateFilterOptionVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateListVO;
+import com.csg.ecard.messagecenter.module.template.vo.TemplateOverviewVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplatePreviewVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateReferenceDetailVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateReferenceListVO;
@@ -81,6 +84,17 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
     private final BlocklyRenderer blocklyRenderer;
 
     @Override
+    public TemplateOverviewVO overview() {
+        TemplateOverviewRow row = msgTemplateMapper.selectOverview();
+        TemplateOverviewVO vo = new TemplateOverviewVO();
+        vo.setTotal(value(row == null ? null : row.getTotal()));
+        vo.setEditedCount(value(row == null ? null : row.getEditedCount()));
+        vo.setEnabledCount(value(row == null ? null : row.getEnabledCount()));
+        vo.setPendingCount(value(row == null ? null : row.getPendingCount()));
+        return vo;
+    }
+
+    @Override
     public PageResult<TemplateListVO> page(TemplatePageQueryDTO query) {
         validatePageQuery(query);
         validateOptionalChannelType(query.getChannelType());
@@ -94,6 +108,16 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
                 .map(this::toListVO)
                 .toList();
         return PageResult.of(list, result.getTotal(), result.getCurrent(), result.getSize());
+    }
+
+    @Override
+    public List<TemplateFilterOptionVO> sceneFilterOptions() {
+        return msgSceneMapper.selectList(new LambdaQueryWrapper<MsgScene>()
+                        .select(MsgScene::getId, MsgScene::getSceneName, MsgScene::getStatus)
+                        .orderByAsc(MsgScene::getSceneName, MsgScene::getId))
+                .stream()
+                .map(this::toSceneFilterOption)
+                .toList();
     }
 
     @Override
@@ -487,6 +511,10 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
+    private long value(Long value) {
+        return value == null ? 0L : value;
+    }
+
     private boolean hasContent(String blocklyJson) {
         if (!StringUtils.hasText(blocklyJson)) {
             return false;
@@ -700,6 +728,14 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         TemplateListVO vo = new TemplateListVO();
         fillListVO(vo, row);
         return vo;
+    }
+
+    private TemplateFilterOptionVO toSceneFilterOption(MsgScene scene) {
+        TemplateFilterOptionVO option = new TemplateFilterOptionVO();
+        option.setValue(String.valueOf(scene.getId()));
+        option.setLabel(scene.getSceneName());
+        option.setStatus(scene.getStatus());
+        return option;
     }
 
     private TemplateDetailVO toDetailVO(TemplateQueryRow row) {

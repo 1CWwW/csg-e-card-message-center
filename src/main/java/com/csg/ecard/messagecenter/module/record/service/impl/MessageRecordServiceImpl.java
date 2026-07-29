@@ -23,15 +23,18 @@ import com.csg.ecard.messagecenter.module.push.sender.MessageSendInfo;
 import com.csg.ecard.messagecenter.module.record.assembler.MessageRecordAssembler;
 import com.csg.ecard.messagecenter.module.record.dto.MessageRecordFilterDTO;
 import com.csg.ecard.messagecenter.module.record.dto.MessageRecordPageQueryDTO;
+import com.csg.ecard.messagecenter.module.record.enums.MessageRecordFilterType;
 import com.csg.ecard.messagecenter.module.record.entity.MsgRecordResendLog;
 import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordDetailRow;
 import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordExportRow;
+import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordFilterOptionRow;
 import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordMapper;
 import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordOverviewRow;
 import com.csg.ecard.messagecenter.module.record.mapper.MessageRecordQueryCriteria;
 import com.csg.ecard.messagecenter.module.record.mapper.MsgRecordResendLogMapper;
 import com.csg.ecard.messagecenter.module.record.service.MessageRecordService;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordDetailVO;
+import com.csg.ecard.messagecenter.module.record.vo.MessageRecordFilterOptionVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordListVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordOverviewVO;
 import com.csg.ecard.messagecenter.module.record.vo.MessageRecordPageResult;
@@ -105,6 +108,23 @@ public class MessageRecordServiceImpl implements MessageRecordService {
         vo.setYesterdayTotal(yesterdayTotal);
         vo.setDayOverDayRate(dayOverDay(todayTotal, yesterdayTotal));
         return vo;
+    }
+
+    @Override
+    public List<MessageRecordFilterOptionVO> filterOptions(MessageRecordFilterType type,
+                                                           String channelType) {
+        if (type == null) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "type不能为空");
+        }
+        String normalizedChannelType = type == MessageRecordFilterType.CHANNEL
+                ? validateChannelType(trimToNull(channelType))
+                : null;
+        List<MessageRecordFilterOptionRow> rows = switch (type) {
+            case SCENE -> messageRecordMapper.selectSceneFilterOptions();
+            case CHANNEL -> messageRecordMapper.selectChannelFilterOptions(normalizedChannelType);
+            case TEMPLATE -> messageRecordMapper.selectTemplateFilterOptions();
+        };
+        return rows.stream().map(this::toFilterOption).toList();
     }
 
     @Override
@@ -397,6 +417,13 @@ public class MessageRecordServiceImpl implements MessageRecordService {
             throw new BizException(ErrorCode.DATA_NOT_FOUND, "消息记录不存在");
         }
         return row;
+    }
+
+    private MessageRecordFilterOptionVO toFilterOption(MessageRecordFilterOptionRow row) {
+        MessageRecordFilterOptionVO option = new MessageRecordFilterOptionVO();
+        option.setValue(row.getOptionValue());
+        option.setLabel(row.getOptionLabel());
+        return option;
     }
 
     private MessageRecordQueryCriteria normalizeAndValidate(MessageRecordFilterDTO query) {

@@ -10,6 +10,12 @@ import java.util.List;
  */
 public interface MessageStatisticsMapper {
 
+    @SelectProvider(type = MessageStatisticsSqlProvider.class, method = "selectSceneFilterOptions")
+    List<StatisticsFilterOptionRow> selectSceneFilterOptions();
+
+    @SelectProvider(type = MessageStatisticsSqlProvider.class, method = "selectTemplateFilterOptions")
+    List<StatisticsFilterOptionRow> selectTemplateFilterOptions();
+
     @SelectProvider(type = MessageStatisticsSqlProvider.class, method = "selectOverview")
     StatisticsOverviewRow selectOverview(@Param("query") MessageStatisticsQueryCriteria query);
 

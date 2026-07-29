@@ -13,15 +13,19 @@ import com.csg.ecard.messagecenter.module.template.service.MsgTemplateService;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateCopyVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateContentVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateDetailVO;
+import com.csg.ecard.messagecenter.module.template.vo.TemplateFilterOptionVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateListVO;
+import com.csg.ecard.messagecenter.module.template.vo.TemplateOverviewVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplatePreviewVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateReferenceDetailVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateReferenceListVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateReferenceVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateToolboxVO;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.validation.annotation.Validated;
@@ -32,6 +36,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -48,10 +53,38 @@ public class MsgTemplateController {
 
     private final MsgTemplateService msgTemplateService;
 
+    /**
+     * 查询模板概览。
+     *
+     * @return 模板概览
+     */
+    @GetMapping("/overview")
+    @Operation(summary = "模板概览查询",
+            description = "统计未删除模板的总数、内容编辑状态及启用数量")
+    public CommonResult<TemplateOverviewVO> overview() {
+        return CommonResult.success(msgTemplateService.overview());
+    }
+
     @GetMapping("/list")
     @Operation(summary = "模板分页查询")
     public CommonResult<PageResult<TemplateListVO>> list(@ParameterObject @Valid TemplatePageQueryDTO query) {
         return CommonResult.success(msgTemplateService.page(query));
+    }
+
+    /**
+     * 按需查询模板页面筛选项。
+     *
+     * @param type 筛选项类型
+     * @return 筛选项列表
+     */
+    @GetMapping("/filter-options")
+    @Operation(summary = "模板管理筛选项查询",
+            description = "场景下拉框首次展开时调用；type当前仅支持scene")
+    public CommonResult<List<TemplateFilterOptionVO>> filterOptions(
+            @Parameter(description = "筛选项类型，当前仅支持scene", required = true)
+            @RequestParam
+            @Pattern(regexp = "scene", message = "type仅支持scene") String type) {
+        return CommonResult.success(msgTemplateService.sceneFilterOptions());
     }
 
     @GetMapping("/reference-list")

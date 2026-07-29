@@ -16,6 +16,25 @@ import java.util.List;
 public interface MsgTemplateMapper extends BaseMapper<MsgTemplate> {
 
     /**
+     * 聚合查询未删除模板的概览数据。
+     *
+     * @return 模板概览聚合结果
+     */
+    @Select({
+            "SELECT",
+            "COUNT(1) AS total,",
+            "COALESCE(SUM(CASE WHEN t.blockly_json IS NOT NULL",
+            "  AND LENGTH(TRIM(t.blockly_json)) > 0 THEN 1 ELSE 0 END), 0) AS editedCount,",
+            "COALESCE(SUM(CASE WHEN t.status = 1 THEN 1 ELSE 0 END), 0) AS enabledCount,",
+            "COALESCE(SUM(CASE WHEN t.blockly_json IS NULL",
+            "  OR LENGTH(TRIM(t.blockly_json)) = 0 THEN 1 ELSE 0 END), 0) AS pendingCount",
+            "FROM msg_template t",
+            "JOIN msg_scene s ON s.id = t.scene_id AND s.deleted = 0",
+            "WHERE t.deleted = 0"
+    })
+    TemplateOverviewRow selectOverview();
+
+    /**
      * 分页查询模板及关联场景、单位数量。
      *
      * @param page  分页对象

@@ -5,15 +5,18 @@ import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsExport
 import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsQueryDTO;
 import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsTimeQueryDTO;
 import com.csg.ecard.messagecenter.module.statistics.enums.StatisticsDimension;
+import com.csg.ecard.messagecenter.module.statistics.enums.StatisticsFilterType;
 import com.csg.ecard.messagecenter.module.statistics.export.MessageStatisticsExcelExporter;
 import com.csg.ecard.messagecenter.module.statistics.service.MessageStatisticsService;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsChannelVO;
+import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsFilterOptionVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsOverviewVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsSceneVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsTemplateVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsTimeVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsUnitVO;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -23,6 +26,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
@@ -31,6 +35,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 /**
  * 消息统计报表接口。
@@ -51,6 +56,22 @@ public class MessageStatisticsController {
 
     private final MessageStatisticsService messageStatisticsService;
     private final MessageStatisticsExcelExporter excelExporter;
+
+    /**
+     * 按需查询消息统计筛选项。
+     *
+     * @param type 筛选项类型
+     * @return 筛选项列表
+     */
+    @GetMapping("/filter-options")
+    @Operation(summary = "消息统计筛选项查询",
+            description = "下拉框首次展开时按需调用；type支持scene、template")
+    public CommonResult<List<StatisticsFilterOptionVO>> filterOptions(
+            @Parameter(description = "筛选项类型：scene、template", required = true)
+            @RequestParam String type) {
+        return CommonResult.success(
+                messageStatisticsService.filterOptions(StatisticsFilterType.fromCode(type)));
+    }
 
     @GetMapping("/overview")
     @Operation(summary = "消息统计总览", description = COMMON_DESCRIPTION)

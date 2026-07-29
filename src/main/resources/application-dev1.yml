@@ -81,3 +81,7 @@ xxl:
 app:
   redis:
     enabled: ${APP_REDIS_ENABLED:false}
+
+message-center:
+  permission:
+    enabled: false

@@ -11,7 +11,9 @@ import com.csg.ecard.messagecenter.module.template.dto.TemplateUpdateDTO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateCopyVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateContentVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateDetailVO;
+import com.csg.ecard.messagecenter.module.template.vo.TemplateFilterOptionVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateListVO;
+import com.csg.ecard.messagecenter.module.template.vo.TemplateOverviewVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplatePreviewVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateReferenceDetailVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateReferenceListVO;
@@ -25,7 +27,21 @@ import java.util.List;
  */
 public interface MsgTemplateService {
 
+    /**
+     * 查询模板概览。
+     *
+     * @return 模板概览
+     */
+    TemplateOverviewVO overview();
+
     PageResult<TemplateListVO> page(TemplatePageQueryDTO query);
+
+    /**
+     * 查询模板页面使用的场景筛选项。
+     *
+     * @return 场景筛选项
+     */
+    List<TemplateFilterOptionVO> sceneFilterOptions();
 
     TemplateDetailVO detail(Long id);
 

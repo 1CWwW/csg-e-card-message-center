@@ -14,11 +14,13 @@ import com.csg.ecard.messagecenter.module.channel.dto.ChannelTypeConfigDTO;
 import com.csg.ecard.messagecenter.module.channel.dto.ChannelUpdateDTO;
 import com.csg.ecard.messagecenter.module.channel.entity.MsgChannel;
 import com.csg.ecard.messagecenter.module.channel.entity.MsgChannelUnit;
+import com.csg.ecard.messagecenter.module.channel.mapper.ChannelOverviewRow;
 import com.csg.ecard.messagecenter.module.channel.mapper.ChannelUnitCountResult;
 import com.csg.ecard.messagecenter.module.channel.mapper.MsgChannelMapper;
 import com.csg.ecard.messagecenter.module.channel.mapper.MsgChannelUnitMapper;
 import com.csg.ecard.messagecenter.module.channel.service.MsgChannelService;
 import com.csg.ecard.messagecenter.module.channel.validator.ChannelTypeConfigValidator;
+import com.csg.ecard.messagecenter.module.channel.vo.ChannelOverviewVO;
 import com.csg.ecard.messagecenter.module.channel.vo.MsgChannelVO;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -49,6 +51,17 @@ public class MsgChannelServiceImpl implements MsgChannelService {
     private final MsgChannelUnitMapper msgChannelUnitMapper;
     private final ChannelTypeConfigValidator channelTypeConfigValidator;
     private final ObjectMapper objectMapper;
+
+    @Override
+    public ChannelOverviewVO overview() {
+        ChannelOverviewRow row = msgChannelMapper.selectOverview();
+        ChannelOverviewVO vo = new ChannelOverviewVO();
+        vo.setSmsCount(value(row == null ? null : row.getSmsCount()));
+        vo.setEmailCount(value(row == null ? null : row.getEmailCount()));
+        vo.setElinkCount(value(row == null ? null : row.getElinkCount()));
+        vo.setInAppCount(value(row == null ? null : row.getInAppCount()));
+        return vo;
+    }
 
     @Override
     public PageResult<MsgChannelVO> page(ChannelPageQueryDTO query) {
@@ -355,5 +368,9 @@ public class MsgChannelServiceImpl implements MsgChannelService {
             case ELINK -> config.getAppId();
             case IN_APP -> "无额外配置";
         };
+    }
+
+    private long value(Long value) {
+        return value == null ? 0L : value;
     }
 }

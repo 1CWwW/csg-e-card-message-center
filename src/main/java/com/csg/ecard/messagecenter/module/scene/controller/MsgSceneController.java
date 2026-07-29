@@ -9,6 +9,7 @@ import com.csg.ecard.messagecenter.module.scene.service.MsgSceneService;
 import com.csg.ecard.messagecenter.module.scene.vo.MsgSceneVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneCodeCheckVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneDisableCheckVO;
+import com.csg.ecard.messagecenter.module.scene.vo.SceneOverviewVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -37,6 +38,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class MsgSceneController {
 
     private final MsgSceneService msgSceneService;
+
+    /**
+     * 查询场景概览。
+     *
+     * @return 场景概览
+     */
+    @GetMapping("/overview")
+    @Operation(summary = "场景概览查询",
+            description = "统计未删除场景、参数及关联模板数量")
+    public CommonResult<SceneOverviewVO> overview() {
+        return CommonResult.success(msgSceneService.overview());
+    }
 
     /**
      * 分页查询场景。

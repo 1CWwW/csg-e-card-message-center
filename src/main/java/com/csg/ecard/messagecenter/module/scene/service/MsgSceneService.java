@@ -7,11 +7,19 @@ import com.csg.ecard.messagecenter.module.scene.dto.SceneUpdateDTO;
 import com.csg.ecard.messagecenter.module.scene.vo.MsgSceneVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneCodeCheckVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneDisableCheckVO;
+import com.csg.ecard.messagecenter.module.scene.vo.SceneOverviewVO;
 
 /**
  * 场景管理服务。
  */
 public interface MsgSceneService {
+
+    /**
+     * 查询场景概览。
+     *
+     * @return 场景概览
+     */
+    SceneOverviewVO overview();
 
     /**
      * 分页查询场景。

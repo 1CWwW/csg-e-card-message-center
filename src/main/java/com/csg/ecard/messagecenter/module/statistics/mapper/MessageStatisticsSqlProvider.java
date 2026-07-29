@@ -29,6 +29,35 @@ public class MessageStatisticsSqlProvider {
                 """;
     }
 
+    public String selectSceneFilterOptions() {
+        return """
+                SELECT DISTINCT
+                TO_CHAR(s.id) AS optionValue,
+                COALESCE(s.scene_name, r.scene_code) AS optionLabel
+                FROM msg_record r
+                INNER JOIN msg_scene s ON s.scene_code = r.scene_code AND s.deleted = 0
+                WHERE r.deleted = 0
+                AND r.send_time IS NOT NULL
+                AND r.send_status IN ('SUCCESS', 'FAILED')
+                ORDER BY 2, 1
+                """;
+    }
+
+    public String selectTemplateFilterOptions() {
+        return """
+                SELECT DISTINCT
+                TO_CHAR(r.template_id) AS optionValue,
+                t.template_name AS optionLabel
+                FROM msg_record r
+                INNER JOIN msg_template t ON t.id = r.template_id AND t.deleted = 0
+                WHERE r.deleted = 0
+                AND r.send_time IS NOT NULL
+                AND r.send_status IN ('SUCCESS', 'FAILED')
+                AND r.template_id IS NOT NULL
+                ORDER BY 2, 1
+                """;
+    }
+
     public String selectSummary() {
         return """
                 <script>

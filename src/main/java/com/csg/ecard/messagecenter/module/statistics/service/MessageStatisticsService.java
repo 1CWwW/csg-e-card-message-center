@@ -4,17 +4,29 @@ import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsExport
 import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsQueryDTO;
 import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsTimeQueryDTO;
 import com.csg.ecard.messagecenter.module.statistics.enums.StatisticsDimension;
+import com.csg.ecard.messagecenter.module.statistics.enums.StatisticsFilterType;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsChannelVO;
+import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsFilterOptionVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsOverviewVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsSceneVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsTemplateVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsTimeVO;
 import com.csg.ecard.messagecenter.module.statistics.vo.StatisticsUnitVO;
 
+import java.util.List;
+
 /**
  * 消息统计报表服务。
  */
 public interface MessageStatisticsService {
+
+    /**
+     * 查询统计页面按需加载的动态筛选项。
+     *
+     * @param type 筛选项类型
+     * @return 筛选项列表
+     */
+    List<StatisticsFilterOptionVO> filterOptions(StatisticsFilterType type);
 
     StatisticsOverviewVO overview(MessageStatisticsQueryDTO query);
 
