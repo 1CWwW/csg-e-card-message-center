@@ -4,6 +4,8 @@ import com.csg.ecard.messagecenter.common.enums.ChannelType;
 import com.csg.ecard.messagecenter.common.enums.ErrorCode;
 import com.csg.ecard.messagecenter.common.enums.MessageCallType;
 import com.csg.ecard.messagecenter.common.exception.BizException;
+import com.csg.ecard.messagecenter.infrastructure.organization.OrganizationNode;
+import com.csg.ecard.messagecenter.infrastructure.organization.OrganizationProvider;
 import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsExportQueryDTO;
 import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsQueryDTO;
 import com.csg.ecard.messagecenter.module.statistics.dto.MessageStatisticsTimeQueryDTO;
@@ -67,6 +69,7 @@ public class MessageStatisticsServiceImpl implements MessageStatisticsService {
     private static final String UNKNOWN_TEXT = "-";
 
     private final MessageStatisticsMapper messageStatisticsMapper;
+    private final OrganizationProvider organizationProvider;
 
     @Override
     public List<StatisticsFilterOptionVO> filterOptions(StatisticsFilterType type) {
@@ -198,7 +201,7 @@ public class MessageStatisticsServiceImpl implements MessageStatisticsService {
         }
         criteria.setChannelTypes(normalizeChannelTypes(query.getChannelTypes()));
         criteria.setSceneIds(normalizeLongs(query.getSceneIds()));
-        criteria.setUnitIds(normalizeTexts(query.getUnitIds()));
+        criteria.setUnitIds(normalizeUnitIds(query.getUnitIds(), query.getIncludeSubUnits()));
         criteria.setTemplateIds(normalizeLongs(query.getTemplateIds()));
         criteria.setCallTypes(normalizeCallTypes(query.getCallTypes()));
         return criteria;
@@ -262,6 +265,53 @@ public class MessageStatisticsServiceImpl implements MessageStatisticsService {
             }
         }
         return new ArrayList<>(result);
+    }
+
+    private List<String> normalizeUnitIds(List<String> values, Boolean includeSubUnits) {
+        List<String> selectedUnitIds = normalizeTexts(values);
+        if (selectedUnitIds.isEmpty() || !Boolean.TRUE.equals(includeSubUnits)) {
+            return selectedUnitIds;
+        }
+        Set<String> selected = new LinkedHashSet<>(selectedUnitIds);
+        List<OrganizationNode> organizationTree = organizationProvider.tree();
+        if (containsTopLevelUnit(organizationTree, selected)) {
+            return Collections.emptyList();
+        }
+        Set<String> result = new LinkedHashSet<>(selectedUnitIds);
+        collectSubUnitIds(organizationTree, selected, result, false);
+        return new ArrayList<>(result);
+    }
+
+    private boolean containsTopLevelUnit(List<OrganizationNode> nodes, Set<String> selected) {
+        if (nodes == null || nodes.isEmpty()) {
+            return false;
+        }
+        return nodes.stream()
+                .filter(Objects::nonNull)
+                .map(OrganizationNode::getOrgId)
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .anyMatch(selected::contains);
+    }
+
+    private void collectSubUnitIds(List<OrganizationNode> nodes,
+                                   Set<String> selected,
+                                   Set<String> result,
+                                   boolean parentSelected) {
+        if (nodes == null || nodes.isEmpty()) {
+            return;
+        }
+        for (OrganizationNode node : nodes) {
+            if (node == null) {
+                continue;
+            }
+            String orgId = StringUtils.hasText(node.getOrgId()) ? node.getOrgId().trim() : null;
+            boolean currentSelected = parentSelected || selected.contains(orgId);
+            if (currentSelected && orgId != null) {
+                result.add(orgId);
+            }
+            collectSubUnitIds(node.getChildren(), selected, result, currentSelected);
+        }
     }
 
     private List<Long> normalizeLongs(List<Long> values) {
@@ -487,6 +537,7 @@ public class MessageStatisticsServiceImpl implements MessageStatisticsService {
             target.setChannelTypes(source.getChannelTypes());
             target.setSceneIds(source.getSceneIds());
             target.setUnitIds(source.getUnitIds());
+            target.setIncludeSubUnits(source.getIncludeSubUnits());
             target.setTemplateIds(source.getTemplateIds());
             target.setCallTypes(source.getCallTypes());
         }

@@ -106,7 +106,8 @@ public class MessageStatisticsController {
 
     @GetMapping("/unit")
     @Operation(summary = "按单位统计消息发送量",
-            description = COMMON_DESCRIPTION + "单位统计当前仅基于msg_record.user_org_id，不支持组织层级和子单位，不接入员工中心。")
+            description = COMMON_DESCRIPTION + "单位统计基于msg_record.user_org_id；includeSubUnits=true时，"
+                    + "按现有组织树包含所选单位自身及全部下级单位；选择最高级单位时按全部单位统计。")
     public CommonResult<StatisticsUnitVO> unit(
             @ParameterObject @Valid MessageStatisticsQueryDTO query) {
         return CommonResult.success(messageStatisticsService.unit(query));

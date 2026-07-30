@@ -33,6 +33,9 @@ public class MessageStatisticsQueryDTO {
     @Schema(description = "单位ID，精确匹配msg_record.user_org_id；为空表示不筛选")
     private List<String> unitIds;
 
+    @Schema(description = "是否包含所选单位的全部下级单位；默认false")
+    private Boolean includeSubUnits;
+
     @Schema(description = "模板ID，按字符串传递；为空表示不筛选")
     private List<Long> templateIds;
 
