@@ -12,7 +12,9 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoField;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -35,8 +37,13 @@ public class BlocklyRenderer {
     private static final int MAX_LOOP_ITERATIONS = 100;
     private static final int MAX_EXPRESSION_DEPTH = 100;
     private static final int MAX_RENDERED_CONTENT_BYTES = 1024 * 1024;
-    private static final DateTimeFormatter TIME_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String DEFAULT_TIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
+    private static final DateTimeFormatter TIME_VALUE_FORMATTER = new DateTimeFormatterBuilder()
+            .appendPattern(DEFAULT_TIME_FORMAT)
+            .optionalStart()
+            .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true)
+            .optionalEnd()
+            .toFormatter();
     private static final String LINKED_NODE_MODE = "LINKED_NODES";
 
     private final SceneParamValueValidator valueValidator;
@@ -157,23 +164,29 @@ public class BlocklyRenderer {
     }
 
     private BlocklyRenderValue renderAmount(JsonNode block, BlockRenderContext context) {
-        BlocklyRenderValue input = renderNode(requireFirstInput(block), context, false);
-        BigDecimal number = requireNumber(input, BlocklyBlockTypes.AMOUNT_FORMAT);
-        return new BlocklyRenderValue(BlocklyValueType.STRING,
-                number.setScale(decimalPlaces(block), RoundingMode.HALF_UP).toPlainString());
+        BlocklyRenderValue input = renderAmountInputValue(requireFirstInput(block), context);
+        return new BlocklyRenderValue(BlocklyValueType.STRING, formatAmountValue(input, block));
+    }
+
+    private BlocklyRenderValue renderAmountInputValue(JsonNode inputBlock, BlockRenderContext context) {
+        if (BlocklyBlockTypes.isSceneParamType(inputBlock.path("type").asText())) {
+            return context.resolveAmountParam(inputBlock);
+        }
+        return renderNode(inputBlock, context, false);
+    }
+
+    private String formatAmountValue(BlocklyRenderValue value, JsonNode block) {
+        if (value.value() == null) {
+            return "";
+        }
+        BigDecimal number = requireGraphNumber(value, BlocklyBlockTypes.AMOUNT_FORMAT);
+        return number.setScale(decimalPlaces(block), RoundingMode.HALF_UP).toPlainString();
     }
 
     private BlocklyRenderValue renderTime(JsonNode block, BlockRenderContext context) {
-        BlocklyRenderValue input = renderNode(requireFirstInput(block), context, false);
-        String value = requireValue(input, BlocklyValueType.TIME,
-                "time_format 的输入必须为时间").toString();
-        try {
-            return new BlocklyRenderValue(BlocklyValueType.STRING,
-                    LocalDateTime.parse(value, TIME_FORMATTER).format(TIME_FORMATTER));
-        } catch (DateTimeParseException ex) {
-            throw new BizException(ErrorCode.RENDER_FAILED,
-                    "time_format 的输入必须符合 yyyy-MM-dd HH:mm:ss");
-        }
+        BlocklyRenderValue input = renderTimeInputValue(requireFirstInput(block), context);
+        return new BlocklyRenderValue(BlocklyValueType.STRING,
+                formatTimeValue(requireTimeText(input), block));
     }
 
     private BlocklyRenderValue renderMathArithmetic(JsonNode block, BlockRenderContext context) {
@@ -203,32 +216,9 @@ public class BlocklyRenderer {
 
     private BlocklyRenderValue renderLogicCompare(JsonNode block, BlockRenderContext context) {
         String operator = operator(block, Set.of("EQ", "NEQ", "LT", "LTE", "GT", "GTE"));
-        BlocklyRenderValue left = renderInput(block, "A", context);
-        BlocklyRenderValue right = renderInput(block, "B", context);
-        boolean result;
-        if ("EQ".equals(operator) || "NEQ".equals(operator)) {
-            BigDecimal leftNumber = numberOrNull(left);
-            BigDecimal rightNumber = numberOrNull(right);
-            if (left.type() != right.type() && (leftNumber == null || rightNumber == null)) {
-                throw new BizException(ErrorCode.RENDER_FAILED,
-                        "logic_compare 的 EQ、NEQ 只允许同类型值比较");
-            }
-            boolean equal = leftNumber != null && rightNumber != null
-                    ? leftNumber.compareTo(rightNumber) == 0
-                    : Objects.equals(left.value(), right.value());
-            result = "EQ".equals(operator) ? equal : !equal;
-        } else {
-            int compared = requireGraphNumber(left, BlocklyBlockTypes.LOGIC_COMPARE)
-                    .compareTo(requireGraphNumber(right, BlocklyBlockTypes.LOGIC_COMPARE));
-            result = switch (operator) {
-                case "LT" -> compared < 0;
-                case "LTE" -> compared <= 0;
-                case "GT" -> compared > 0;
-                case "GTE" -> compared >= 0;
-                default -> throw unsupportedOperator(BlocklyBlockTypes.LOGIC_COMPARE);
-            };
-        }
-        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, result);
+        BlocklyRenderValue left = renderCompareInput(block, "A", context);
+        BlocklyRenderValue right = renderCompareInput(block, "B", context);
+        return evaluateLogicCompare(operator, left, right);
     }
 
     private BlocklyRenderValue renderLogicOperation(JsonNode block, BlockRenderContext context) {
@@ -494,9 +484,30 @@ public class BlocklyRenderer {
         return renderNode(child, context, false);
     }
 
+    private BlocklyRenderValue renderCompareInput(JsonNode block,
+                                                  String inputName,
+                                                  BlockRenderContext context) {
+        JsonNode child = activeBlock(block.path("inputs").get(inputName));
+        if (child == null) {
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    BlocklyBlockTypes.LOGIC_COMPARE + " 缺少输入 " + inputName);
+        }
+        return renderCompareInputValue(child, context);
+    }
+
+    private BlocklyRenderValue renderCompareInputValue(JsonNode inputBlock,
+                                                       BlockRenderContext context) {
+        if (BlocklyBlockTypes.isSceneParamType(inputBlock.path("type").asText())) {
+            return context.resolveCompareParam(inputBlock);
+        }
+        return renderNode(inputBlock, context, false);
+    }
+
     private BigDecimal requireNumber(BlocklyRenderValue value, String blockType) {
-        return (BigDecimal) requireValue(value, BlocklyValueType.NUMBER,
-                blockType + " 的输入必须为数字");
+        if (value.type() != BlocklyValueType.NUMBER || !(value.value() instanceof BigDecimal number)) {
+            throw new BizException(ErrorCode.RENDER_FAILED, blockType + " 的输入必须为数字");
+        }
+        return number;
     }
 
     private BigDecimal requireGraphNumber(BlocklyRenderValue value, String blockType) {
@@ -542,6 +553,68 @@ public class BlocklyRenderer {
             }
         }
         return null;
+    }
+
+    private BlocklyRenderValue evaluateLogicCompare(String operator,
+                                                    BlocklyRenderValue left,
+                                                    BlocklyRenderValue right) {
+        if (left.value() == null || right.value() == null) {
+            return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, false);
+        }
+        boolean equalityOperator = "EQ".equals(operator) || "NEQ".equals(operator);
+        if (left.type() == BlocklyValueType.TIME || right.type() == BlocklyValueType.TIME) {
+            int compared = requireCompareTime(left).compareTo(requireCompareTime(right));
+            return new BlocklyRenderValue(BlocklyValueType.BOOLEAN,
+                    comparisonResult(operator, compared));
+        }
+        BigDecimal leftNumber = numberOrNull(left);
+        BigDecimal rightNumber = numberOrNull(right);
+        boolean numberComparison = left.type() == BlocklyValueType.NUMBER
+                || right.type() == BlocklyValueType.NUMBER
+                || (leftNumber != null && rightNumber != null);
+        if (!equalityOperator || numberComparison) {
+            int compared = requireCompareNumber(left).compareTo(requireCompareNumber(right));
+            return new BlocklyRenderValue(BlocklyValueType.BOOLEAN,
+                    comparisonResult(operator, compared));
+        }
+        if (left.type() != right.type()) {
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    "logic_compare 的 EQ、NEQ 只允许同类型值比较");
+        }
+        boolean equal = Objects.equals(left.value(), right.value());
+        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN,
+                "EQ".equals(operator) ? equal : !equal);
+    }
+
+    private BigDecimal requireCompareNumber(BlocklyRenderValue value) {
+        BigDecimal number = numberOrNull(value);
+        if (number == null) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "logic_compare 的输入必须为数字");
+        }
+        return number;
+    }
+
+    private LocalDateTime requireCompareTime(BlocklyRenderValue value) {
+        if (value.value() instanceof String text && StringUtils.hasText(text)) {
+            try {
+                return parseLinkedTime(text);
+            } catch (BizException ignored) {
+                // 统一转换为比较节点类型错误。
+            }
+        }
+        throw new BizException(ErrorCode.RENDER_FAILED, "logic_compare 的输入必须为时间");
+    }
+
+    private boolean comparisonResult(String operator, int compared) {
+        return switch (operator) {
+            case "EQ" -> compared == 0;
+            case "NEQ" -> compared != 0;
+            case "LT" -> compared < 0;
+            case "LTE" -> compared <= 0;
+            case "GT" -> compared > 0;
+            case "GTE" -> compared >= 0;
+            default -> throw unsupportedOperator(BlocklyBlockTypes.LOGIC_COMPARE);
+        };
     }
 
     private boolean requireBoolean(BlocklyRenderValue value, String blockType) {
@@ -899,11 +972,10 @@ public class BlocklyRenderer {
                                                  GraphWorkspace graph,
                                                  BlockRenderContext context,
                                                  Set<String> visiting) {
-        GraphInputValue input = renderGraphFormatInput(blockId, graph, context, visiting,
+        GraphInputValue input = renderGraphAmountFormatInput(blockId, graph, context, visiting,
                 "VALUE", "input");
-        BigDecimal number = requireGraphNumber(input.value(), BlocklyBlockTypes.AMOUNT_FORMAT);
         return new BlocklyRenderValue(BlocklyValueType.STRING,
-                input.prefix() + number.setScale(decimalPlaces(block), RoundingMode.HALF_UP).toPlainString());
+                input.prefix() + formatAmountValue(input.value(), block));
     }
 
     private BlocklyRenderValue renderGraphTime(String blockId,
@@ -911,17 +983,10 @@ public class BlocklyRenderer {
                                                GraphWorkspace graph,
                                                BlockRenderContext context,
                                                Set<String> visiting) {
-        GraphInputValue input = renderGraphFormatInput(blockId, graph, context, visiting,
+        GraphInputValue input = renderGraphTimeFormatInput(blockId, graph, context, visiting,
                 "VALUE", "input");
-        String value = requireValue(input.value(), BlocklyValueType.TIME,
-                "time_format 的输入必须为时间").toString();
-        try {
-            return new BlocklyRenderValue(BlocklyValueType.STRING,
-                    input.prefix() + LocalDateTime.parse(value, TIME_FORMATTER).format(TIME_FORMATTER));
-        } catch (DateTimeParseException ex) {
-            throw new BizException(ErrorCode.RENDER_FAILED,
-                    "time_format 的输入必须符合 yyyy-MM-dd HH:mm:ss");
-        }
+        return new BlocklyRenderValue(BlocklyValueType.STRING,
+                input.prefix() + formatTimeValue(requireTimeText(input.value()), block));
     }
 
     private BlocklyRenderValue renderGraphMathArithmetic(String blockId,
@@ -1006,32 +1071,11 @@ public class BlocklyRenderer {
                                                   BlockRenderContext context,
                                                   Set<String> visiting) {
         String operator = linkedOperator(block, Set.of("EQ", "NEQ", "LT", "LTE", "GT", "GTE"));
-        BlocklyRenderValue left = renderGraphInput(blockId, graph, context, visiting, "leftValue", "left", "A", "input");
-        BlocklyRenderValue right = renderGraphInput(blockId, graph, context, visiting, "rightValue", "right", "B");
-        boolean result;
-        if ("EQ".equals(operator) || "NEQ".equals(operator)) {
-            BigDecimal leftNumber = numberOrNull(left);
-            BigDecimal rightNumber = numberOrNull(right);
-            if (left.type() != right.type() && (leftNumber == null || rightNumber == null)) {
-                throw new BizException(ErrorCode.RENDER_FAILED,
-                        "logic_compare 的 EQ、NEQ 只允许同类型值比较");
-            }
-            boolean equal = leftNumber != null && rightNumber != null
-                    ? leftNumber.compareTo(rightNumber) == 0
-                    : Objects.equals(left.value(), right.value());
-            result = "EQ".equals(operator) ? equal : !equal;
-        } else {
-            int compared = requireGraphNumber(left, BlocklyBlockTypes.LOGIC_COMPARE)
-                    .compareTo(requireGraphNumber(right, BlocklyBlockTypes.LOGIC_COMPARE));
-            result = switch (operator) {
-                case "LT" -> compared < 0;
-                case "LTE" -> compared <= 0;
-                case "GT" -> compared > 0;
-                case "GTE" -> compared >= 0;
-                default -> throw unsupportedOperator(BlocklyBlockTypes.LOGIC_COMPARE);
-            };
-        }
-        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, result);
+        BlocklyRenderValue left = renderGraphCompareInput(blockId, graph, context, visiting,
+                "leftValue", "left", "A", "input");
+        BlocklyRenderValue right = renderGraphCompareInput(blockId, graph, context, visiting,
+                "rightValue", "right", "B");
+        return evaluateLogicCompare(operator, left, right);
     }
 
     private BlocklyRenderValue renderGraphLogicOperation(String blockId,
@@ -1182,26 +1226,78 @@ public class BlocklyRenderer {
         return renderGraphValue(sourceId, graph, context, visiting);
     }
 
-    private GraphInputValue renderGraphFormatInput(String blockId,
-                                                   GraphWorkspace graph,
-                                                   BlockRenderContext context,
-                                                   Set<String> visiting,
-                                                   String valuePort,
-                                                   String inputPort) {
+    private BlocklyRenderValue renderGraphCompareInput(String blockId,
+                                                       GraphWorkspace graph,
+                                                       BlockRenderContext context,
+                                                       Set<String> visiting,
+                                                       String... ports) {
+        String sourceId = graph.inputSourceId(blockId, ports);
+        if (!StringUtils.hasText(sourceId)) {
+            JsonNode block = graph.requireBlock(blockId);
+            for (String port : ports) {
+                JsonNode child = activeBlock(block.path("inputs").get(port));
+                if (child != null) {
+                    return renderCompareInputValue(child, context);
+                }
+            }
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    "节点 " + blockId + "：缺少输入 " + ports[0]);
+        }
+        JsonNode sourceBlock = graph.requireBlock(sourceId);
+        if (BlocklyBlockTypes.isSceneParamType(sourceBlock.path("type").asText())) {
+            return context.resolveCompareParam(sourceBlock);
+        }
+        return renderGraphValue(sourceId, graph, context, visiting);
+    }
+
+    private GraphInputValue renderGraphAmountFormatInput(String blockId,
+                                                         GraphWorkspace graph,
+                                                         BlockRenderContext context,
+                                                         Set<String> visiting,
+                                                         String valuePort,
+                                                         String inputPort) {
         String valueSourceId = graph.inputSourceId(blockId, valuePort);
         if (StringUtils.hasText(valueSourceId)) {
-            return new GraphInputValue("", renderGraphRawValue(valueSourceId, graph, context, visiting));
+            return new GraphInputValue("",
+                    renderGraphRawAmountValue(valueSourceId, graph, context, visiting));
         }
         String inputSourceId = graph.inputSourceId(blockId, inputPort);
         if (StringUtils.hasText(inputSourceId)) {
             return new GraphInputValue(renderGraphPrefix(inputSourceId, graph, context, visiting),
-                    renderGraphRawValue(inputSourceId, graph, context, visiting));
+                    renderGraphRawAmountValue(inputSourceId, graph, context, visiting));
         }
         JsonNode block = graph.requireBlock(blockId);
         for (String port : new String[]{valuePort, inputPort}) {
             JsonNode child = activeBlock(block.path("inputs").get(port));
             if (child != null) {
-                return new GraphInputValue("", renderNode(child, context, false));
+                return new GraphInputValue("", renderAmountInputValue(child, context));
+            }
+        }
+        throw new BizException(ErrorCode.RENDER_FAILED,
+                block.path("type").asText() + " 缺少输入 " + valuePort);
+    }
+
+    private GraphInputValue renderGraphTimeFormatInput(String blockId,
+                                                       GraphWorkspace graph,
+                                                       BlockRenderContext context,
+                                                       Set<String> visiting,
+                                                       String valuePort,
+                                                       String inputPort) {
+        String valueSourceId = graph.inputSourceId(blockId, valuePort);
+        if (StringUtils.hasText(valueSourceId)) {
+            return new GraphInputValue("",
+                    renderGraphRawTimeValue(valueSourceId, graph, context, visiting));
+        }
+        String inputSourceId = graph.inputSourceId(blockId, inputPort);
+        if (StringUtils.hasText(inputSourceId)) {
+            return new GraphInputValue(renderGraphPrefix(inputSourceId, graph, context, visiting),
+                    renderGraphRawTimeValue(inputSourceId, graph, context, visiting));
+        }
+        JsonNode block = graph.requireBlock(blockId);
+        for (String port : new String[]{valuePort, inputPort}) {
+            JsonNode child = activeBlock(block.path("inputs").get(port));
+            if (child != null) {
+                return new GraphInputValue("", renderTimeInputValue(child, context));
             }
         }
         throw new BizException(ErrorCode.RENDER_FAILED,
@@ -1238,6 +1334,28 @@ public class BlocklyRenderer {
             case BlocklyBlockTypes.LOOP_ITEM_FIELD -> renderLoopItemField(block, context);
             default -> renderGraphValue(blockId, graph, context, visiting);
         };
+    }
+
+    private BlocklyRenderValue renderGraphRawAmountValue(String blockId,
+                                                         GraphWorkspace graph,
+                                                         BlockRenderContext context,
+                                                         Set<String> visiting) {
+        JsonNode block = graph.requireBlock(blockId);
+        if (BlocklyBlockTypes.isSceneParamType(block.path("type").asText())) {
+            return context.resolveAmountParam(block);
+        }
+        return renderGraphRawValue(blockId, graph, context, visiting);
+    }
+
+    private BlocklyRenderValue renderGraphRawTimeValue(String blockId,
+                                                       GraphWorkspace graph,
+                                                       BlockRenderContext context,
+                                                       Set<String> visiting) {
+        JsonNode block = graph.requireBlock(blockId);
+        if (BlocklyBlockTypes.isSceneParamType(block.path("type").asText())) {
+            return new BlocklyRenderValue(BlocklyValueType.TIME, context.resolveRawParamText(block));
+        }
+        return renderGraphRawValue(blockId, graph, context, visiting);
     }
 
     private BlocklyRenderValue renderGraphMathValue(String blockId,
@@ -1337,28 +1455,19 @@ public class BlocklyRenderer {
                                                    List<JsonNode> orderedBlocks,
                                                    BlockRenderContext context) {
         String operator = linkedOperator(orderedBlocks.get(index), Set.of("EQ", "NEQ", "LT", "LTE", "GT", "GTE"));
-        BlocklyRenderValue left = linkedOperand(index - 1, orderedBlocks, context);
-        BlocklyRenderValue right = linkedOperand(index + 1, orderedBlocks, context);
-        boolean result;
-        if ("EQ".equals(operator) || "NEQ".equals(operator)) {
-            BigDecimal leftNumber = numberOrNull(left);
-            BigDecimal rightNumber = numberOrNull(right);
-            boolean equal = leftNumber != null && rightNumber != null
-                    ? leftNumber.compareTo(rightNumber) == 0
-                    : Objects.equals(left.asText(), right.asText());
-            result = "EQ".equals(operator) ? equal : !equal;
-        } else {
-            int compared = requireLinkedNumber(left, "比较节点前后必须是数值")
-                    .compareTo(requireLinkedNumber(right, "比较节点前后必须是数值"));
-            result = switch (operator) {
-                case "LT" -> compared < 0;
-                case "LTE" -> compared <= 0;
-                case "GT" -> compared > 0;
-                case "GTE" -> compared >= 0;
-                default -> throw unsupportedOperator(BlocklyBlockTypes.LOGIC_COMPARE);
-            };
+        BlocklyRenderValue left = linkedCompareOperand(index - 1, orderedBlocks, context);
+        BlocklyRenderValue right = linkedCompareOperand(index + 1, orderedBlocks, context);
+        return evaluateLogicCompare(operator, left, right);
+    }
+
+    private BlocklyRenderValue linkedCompareOperand(int index,
+                                                    List<JsonNode> orderedBlocks,
+                                                    BlockRenderContext context) {
+        JsonNode block = orderedBlocks.get(index);
+        if (BlocklyBlockTypes.isSceneParamType(block.path("type").asText())) {
+            return context.resolveCompareParam(block);
         }
-        return new BlocklyRenderValue(BlocklyValueType.BOOLEAN, result);
+        return linkedOperand(index, orderedBlocks, context);
     }
 
     private BlocklyRenderValue renderLinkedStringContains(int index,
@@ -1408,10 +1517,24 @@ public class BlocklyRenderer {
                                                   List<JsonNode> orderedBlocks,
                                                   BlockRenderContext context) {
         int inputIndex = linkedAdjacentInputIndex(index, orderedBlocks);
-        BigDecimal number = requireLinkedNumber(linkedOperand(inputIndex, orderedBlocks, context),
+        BlocklyRenderValue input = linkedAmountInput(inputIndex, orderedBlocks, context);
+        if (input.value() == null) {
+            return new BlocklyRenderValue(BlocklyValueType.STRING, "");
+        }
+        BigDecimal number = requireLinkedNumber(input,
                 "金额格式化节点相邻节点必须是数值");
         return new BlocklyRenderValue(BlocklyValueType.STRING,
                 number.setScale(decimalPlaces(orderedBlocks.get(index)), RoundingMode.HALF_UP).toPlainString());
+    }
+
+    private BlocklyRenderValue linkedAmountInput(int inputIndex,
+                                                 List<JsonNode> orderedBlocks,
+                                                 BlockRenderContext context) {
+        JsonNode inputBlock = orderedBlocks.get(inputIndex);
+        if (BlocklyBlockTypes.isSceneParamType(inputBlock.path("type").asText())) {
+            return context.resolveAmountParam(inputBlock);
+        }
+        return linkedOperand(inputIndex, orderedBlocks, context);
     }
 
     private BlocklyRenderValue renderLinkedTime(int index,
@@ -1419,10 +1542,8 @@ public class BlocklyRenderer {
                                                 BlockRenderContext context) {
         int inputIndex = linkedAdjacentInputIndex(index, orderedBlocks);
         String value = linkedTimeInputText(inputIndex, orderedBlocks, context);
-        String format = linkedTimeFormat(orderedBlocks.get(index));
-        LocalDateTime time = parseLinkedTime(value);
-        DateTimeFormatter formatter = requireLinkedTimeFormatter(format);
-        return new BlocklyRenderValue(BlocklyValueType.STRING, time.format(formatter));
+        return new BlocklyRenderValue(BlocklyValueType.STRING,
+                formatTimeValue(value, orderedBlocks.get(index)));
     }
 
     private BlocklyRenderValue linkedOperand(int index,
@@ -1566,15 +1687,12 @@ public class BlocklyRenderer {
             return format;
         }
         format = text(block.path("fields").get("FORMAT"));
-        return StringUtils.hasText(format) ? format : "yyyy-MM-dd HH:mm:ss";
+        return StringUtils.hasText(format) ? format : DEFAULT_TIME_FORMAT;
     }
 
     private LocalDateTime parseLinkedTime(String value) {
-        if (!StringUtils.hasText(value)) {
-            throw new BizException(ErrorCode.RENDER_FAILED, "时间格式化节点相邻节点不能为空");
-        }
         for (DateTimeFormatter formatter : List.of(
-                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+                TIME_VALUE_FORMATTER,
                 DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))) {
             try {
                 return LocalDateTime.parse(value, formatter);
@@ -1594,6 +1712,28 @@ public class BlocklyRenderer {
         }
         throw new BizException(ErrorCode.RENDER_FAILED,
                 "时间值格式不合法，应为 yyyy-MM-dd HH:mm:ss");
+    }
+
+    private String formatTimeValue(String value, JsonNode block) {
+        DateTimeFormatter outputFormatter = requireLinkedTimeFormatter(linkedTimeFormat(block));
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        return parseLinkedTime(value).format(outputFormatter);
+    }
+
+    private BlocklyRenderValue renderTimeInputValue(JsonNode inputBlock, BlockRenderContext context) {
+        if (BlocklyBlockTypes.isSceneParamType(inputBlock.path("type").asText())) {
+            return new BlocklyRenderValue(BlocklyValueType.TIME, context.resolveRawParamText(inputBlock));
+        }
+        return renderNode(inputBlock, context, false);
+    }
+
+    private String requireTimeText(BlocklyRenderValue value) {
+        if (value.type() != BlocklyValueType.TIME) {
+            throw new BizException(ErrorCode.RENDER_FAILED, "time_format 的输入必须为时间");
+        }
+        return value.asText();
     }
 
     private DateTimeFormatter requireLinkedTimeFormatter(String format) {

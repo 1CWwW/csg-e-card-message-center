@@ -774,19 +774,26 @@ public class BlocklyJsonValidator {
         String operator = requireOperator(block, Set.of("EQ", "NEQ", "LT", "LTE", "GT", "GTE"));
         BlocklyValueType left = validateRequiredInput(block, "A", depth, context);
         BlocklyValueType right = validateRequiredInput(block, "B", depth, context);
+        boolean timeLike = isTimeLikeCompareInput(left, right);
         if ("EQ".equals(operator) || "NEQ".equals(operator)) {
             if ((left != right && (!isNumberLikeCompareInput(block, "A", left)
-                    || !isNumberLikeCompareInput(block, "B", right)))
+                    || !isNumberLikeCompareInput(block, "B", right)) && !timeLike)
                     || left == BlocklyValueType.STATEMENT) {
                 throw new BizException(ErrorCode.PARAM_ERROR,
                         "logic_compare 的 EQ、NEQ 只允许同类型值比较");
             }
-        } else if (!isNumberLikeCompareInput(block, "A", left)
-                || !isNumberLikeCompareInput(block, "B", right)) {
+        } else if ((!isNumberLikeCompareInput(block, "A", left)
+                || !isNumberLikeCompareInput(block, "B", right)) && !timeLike) {
             throw new BizException(ErrorCode.PARAM_ERROR,
-                    "logic_compare 的大小比较输入必须为 NUMBER");
+                    "logic_compare 的大小比较输入必须为 NUMBER 或 TIME");
         }
         return BlocklyValueType.BOOLEAN;
+    }
+
+    private boolean isTimeLikeCompareInput(BlocklyValueType left, BlocklyValueType right) {
+        return (left == BlocklyValueType.TIME || right == BlocklyValueType.TIME)
+                && (left == BlocklyValueType.TIME || left == BlocklyValueType.STRING)
+                && (right == BlocklyValueType.TIME || right == BlocklyValueType.STRING);
     }
 
     private boolean isNumberLikeCompareInput(JsonNode block, String inputName, BlocklyValueType type) {

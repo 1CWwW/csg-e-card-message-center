@@ -56,13 +56,7 @@ public class BlockRenderContext {
         JsonNode rawValue = values.get(paramName);
         boolean provided = values.containsKey(paramName);
         String formatted = valueValidator.validateAndFormat(param, rawValue, provided);
-        BlocklyValueType type;
-        try {
-            type = BlocklyValueType.fromParamType(param.getParamType());
-        } catch (IllegalArgumentException ex) {
-            throw new BizException(ErrorCode.PARAM_ERROR,
-                    "场景参数类型不合法：" + param.getParamName());
-        }
+        BlocklyValueType type = resolveValueType(param);
         if (!provided || rawValue == null || rawValue.isNull()) {
             return new BlocklyRenderValue(type, null);
         }
@@ -80,6 +74,59 @@ public class BlockRenderContext {
     }
 
     /**
+     * 解析比较节点参数，允许可选参数以空值参与比较短路。
+     *
+     * @param block 场景参数积木
+     * @return 比较节点运行时值
+     */
+    public BlocklyRenderValue resolveCompareParam(JsonNode block) {
+        return resolveNullableScalarParam(block);
+    }
+
+    /**
+     * 解析金额格式化参数，允许可选数字参数为空。
+     *
+     * @param block 场景参数积木
+     * @return 金额格式化运行时值
+     */
+    public BlocklyRenderValue resolveAmountParam(JsonNode block) {
+        return resolveNullableScalarParam(block);
+    }
+
+    private BlocklyRenderValue resolveNullableScalarParam(JsonNode block) {
+        JsonNode extraState = block.get("extraState");
+        String paramName = extraState.path("paramName").asText();
+        MsgSceneParam param = resolveParam(extraState, paramName);
+        if (param == null || !sceneId.equals(param.getSceneId()) || !paramName.equals(param.getParamName())) {
+            throw new BizException(ErrorCode.PARAM_ERROR,
+                    "模板引用的参数不存在、已删除或不属于当前场景：" + paramName);
+        }
+        usedParams.add(paramName);
+        JsonNode rawValue = values.get(paramName);
+        boolean provided = values.containsKey(paramName);
+        BlocklyValueType type = resolveValueType(param);
+        if (isEmptyNullableValue(rawValue, provided)) {
+            if (Integer.valueOf(1).equals(param.getIsRequired())) {
+                if (provided && rawValue != null && rawValue.isTextual()) {
+                    throw new BizException(ErrorCode.PARAM_ERROR,
+                            "必填参数值为空：" + param.getParamName());
+                }
+                valueValidator.validateAndFormat(param, rawValue, provided);
+            }
+            return new BlocklyRenderValue(type, null);
+        }
+        if (type == BlocklyValueType.NUMBER) {
+            Object value = rawValue.isNumber() ? rawValue.decimalValue() : rawValue;
+            return new BlocklyRenderValue(type, value);
+        }
+        if (type == BlocklyValueType.TIME) {
+            Object value = rawValue.isTextual() ? rawValue.textValue() : rawValue;
+            return new BlocklyRenderValue(type, value);
+        }
+        return resolveParam(block);
+    }
+
+    /**
      * 获取场景参数原始预览值，用于链式格式化节点区分输入值和格式模板。
      */
     public String resolveRawParamText(JsonNode block) {
@@ -93,8 +140,11 @@ public class BlockRenderContext {
         usedParams.add(paramName);
         JsonNode rawValue = values.get(paramName);
         boolean provided = values.containsKey(paramName);
-        if (!provided || rawValue == null || rawValue.isNull()) {
-            return missingValueText(param, provided);
+        if (!provided) {
+            return missingValueText(param, false);
+        }
+        if (rawValue == null || rawValue.isNull()) {
+            return "";
         }
         if (rawValue.isTextual()) {
             return rawValue.textValue();
@@ -115,6 +165,22 @@ public class BlockRenderContext {
                 .filter(param -> paramName.equals(param.getParamName()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private BlocklyValueType resolveValueType(MsgSceneParam param) {
+        try {
+            return BlocklyValueType.fromParamType(param.getParamType());
+        } catch (IllegalArgumentException ex) {
+            throw new BizException(ErrorCode.PARAM_ERROR,
+                    "场景参数类型不合法：" + param.getParamName());
+        }
+    }
+
+    private boolean isEmptyNullableValue(JsonNode rawValue, boolean provided) {
+        return !provided
+                || rawValue == null
+                || rawValue.isNull()
+                || (rawValue.isTextual() && rawValue.textValue().isEmpty());
     }
 
     private String missingValueText(MsgSceneParam param, boolean provided) {

@@ -102,6 +102,8 @@ class MsgTemplateServiceImplTest {
         expressionParams.put(10L, param(10L, "prefix", ParamType.STRING));
         expressionParams.put(11L, optionalParam(11L, "wallets", ParamType.OBJECT_ARRAY));
         expressionParams.put(12L, param(12L, "isPark", ParamType.BOOLEAN));
+        expressionParams.put(13L, optionalParam(13L, "optionalAmount", ParamType.NUMBER));
+        expressionParams.put(14L, optionalParam(14L, "optionalTime", ParamType.TIME));
     }
 
     @Test
@@ -185,6 +187,35 @@ class MsgTemplateServiceImplTest {
     }
 
     @Test
+    void shouldSkipAmountFormatForEmptyOptionalParamAndContinueRendering() {
+        ObjectNode amount = unary(BlocklyBlockTypes.AMOUNT_FORMAT, "VALUE",
+                paramBlock(13L, "optionalAmount", ParamType.NUMBER));
+        ObjectNode content = objectMapper.createObjectNode();
+        content.put("type", BlocklyBlockTypes.TEXT_JOIN);
+        putInput(content, "ADD0", amount);
+        putInput(content, "ADD1", textBlock("aaa"));
+
+        for (Map<String, JsonNode> values : List.of(
+                Map.<String, JsonNode>of(),
+                Map.<String, JsonNode>of("optionalAmount", objectMapper.nullNode()),
+                Map.<String, JsonNode>of("optionalAmount", objectMapper.valueToTree("")))) {
+            assertThat(render(content, values).renderedContent()).isEqualTo("aaa");
+        }
+        assertThat(render(content, Map.of("optionalAmount", objectMapper.valueToTree(12)))
+                .renderedContent()).isEqualTo("12.00aaa");
+        assertThatThrownBy(() -> render(content,
+                Map.of("optionalAmount", objectMapper.valueToTree("not-number"))))
+                .isInstanceOf(BizException.class)
+                .hasMessage("amount_format 的输入必须为数字");
+
+        ObjectNode requiredAmount = unary(BlocklyBlockTypes.AMOUNT_FORMAT, "VALUE",
+                paramBlock(1L, "left", ParamType.NUMBER));
+        assertThatThrownBy(() -> render(requiredAmount, Map.of()))
+                .isInstanceOf(BizException.class)
+                .hasMessage("必填参数未提供：left");
+    }
+
+    @Test
     void shouldRenderLinkedNodeModeByTemplateNodeOrder() {
         ObjectNode hello = textBlock("你好，");
         hello.put("id", "text-1");
@@ -243,6 +274,27 @@ class MsgTemplateServiceImplTest {
                 expressionParams, BlocklyValidationMode.DRAFT);
         assertThat(actualRenderer.render(compare.getBlocklyJson(), 1L,
                 expressionParams, Map.of()).renderedContent()).isEqualTo("true");
+    }
+
+    @Test
+    void shouldSkipLinkedAmountFormatForEmptyOptionalParam() {
+        ObjectNode amountParam = paramBlock(13L, "optionalAmount", ParamType.NUMBER);
+        amountParam.put("id", "amount-param");
+        ObjectNode amount = linkedDecimals("amount", BlocklyBlockTypes.AMOUNT_FORMAT, 2);
+        ObjectNode suffix = linkedText("suffix", "aaa");
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                linkedWorkspace(amountParam, amount, suffix), 1L,
+                expressionParams, BlocklyValidationMode.DRAFT);
+
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of()).renderedContent()).isEqualTo("aaa");
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("optionalAmount", objectMapper.valueToTree(12)))
+                .renderedContent()).isEqualTo("12.00aaa");
+        assertThatThrownBy(() -> actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("optionalAmount", objectMapper.valueToTree("not-number"))))
+                .isInstanceOf(BizException.class)
+                .hasMessage("金额格式化节点相邻节点必须是数值");
     }
 
     @Test
@@ -565,7 +617,7 @@ class MsgTemplateServiceImplTest {
     void shouldRenderGraphAmountFormatWithPrefixedParamInputAsTextSegment() {
         ObjectNode prefix = textJoinBlock("本园区就餐消费成功，共消费了");
         prefix.put("id", "prefix");
-        ObjectNode amountParam = paramBlock(1L, "left", ParamType.NUMBER);
+        ObjectNode amountParam = paramBlock(13L, "optionalAmount", ParamType.NUMBER);
         amountParam.put("id", "amount-param");
         ObjectNode amount = linkedDecimals("amount", BlocklyBlockTypes.AMOUNT_FORMAT, 2);
         ObjectNode suffix = textJoinBlock("元");
@@ -579,13 +631,26 @@ class MsgTemplateServiceImplTest {
                 workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
 
         assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
-                expressionParams, Map.of("left", objectMapper.valueToTree(55))).renderedContent())
+                expressionParams, Map.of("optionalAmount", objectMapper.valueToTree(55))).renderedContent())
                 .isEqualTo("本园区就餐消费成功，共消费了55.00元");
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of()).renderedContent())
+                .isEqualTo("本园区就餐消费成功，共消费了元");
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("optionalAmount", objectMapper.nullNode())).renderedContent())
+                .isEqualTo("本园区就餐消费成功，共消费了元");
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("optionalAmount", objectMapper.valueToTree(""))).renderedContent())
+                .isEqualTo("本园区就餐消费成功，共消费了元");
+        assertThatThrownBy(() -> actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("optionalAmount", objectMapper.valueToTree("not-number"))))
+                .isInstanceOf(BizException.class)
+                .hasMessage("amount_format 的输入必须为数字");
     }
 
     @Test
     void shouldRenderGraphControlsIfByBranchesAndComparePorts() {
-        ObjectNode amount = paramBlock(1L, "left", ParamType.NUMBER);
+        ObjectNode amount = paramBlock(13L, "optionalAmount", ParamType.NUMBER);
         amount.put("id", "amount");
         ObjectNode threshold = linkedText("threshold", "2");
         ObjectNode compare = linkedOperation("compare", BlocklyBlockTypes.LOGIC_COMPARE, "EQ");
@@ -612,11 +677,23 @@ class MsgTemplateServiceImplTest {
                 workspace, 1L, expressionParams, BlocklyValidationMode.DRAFT);
 
         assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
-                expressionParams, Map.of("left", objectMapper.valueToTree(2))).renderedContent())
+                expressionParams, Map.of("optionalAmount", objectMapper.valueToTree(2))).renderedContent())
                 .isEqualTo("11");
         assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
-                expressionParams, Map.of("left", objectMapper.valueToTree(1))).renderedContent())
+                expressionParams, Map.of("optionalAmount", objectMapper.valueToTree(1))).renderedContent())
                 .isEqualTo("22");
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of()).renderedContent()).isEqualTo("22");
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("optionalAmount", objectMapper.nullNode())).renderedContent())
+                .isEqualTo("22");
+        assertThat(actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("optionalAmount", objectMapper.valueToTree(""))).renderedContent())
+                .isEqualTo("22");
+        assertThatThrownBy(() -> actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("optionalAmount", objectMapper.valueToTree("not-number"))))
+                .isInstanceOf(BizException.class)
+                .hasMessage("logic_compare 的输入必须为数字");
     }
 
     @Test
@@ -753,6 +830,60 @@ class MsgTemplateServiceImplTest {
     }
 
     @Test
+    void shouldRenderEmptyLinkedTimeAsEmptyAndContinueFollowingNodes() {
+        ObjectNode sendTime = paramBlock(4L, "sendTime", ParamType.TIME);
+        sendTime.put("id", "time-param");
+        ObjectNode formatter = linkedTimeFormat("time-format", "yyyy-MM-dd HH:mm:ss");
+        ObjectNode suffix = linkedText("suffix", "后续节点");
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                linkedWorkspace(sendTime, formatter, suffix), 1L,
+                expressionParams, BlocklyValidationMode.DRAFT);
+
+        for (JsonNode emptyValue : List.of(
+                objectMapper.nullNode(),
+                objectMapper.getNodeFactory().textNode(""),
+                objectMapper.getNodeFactory().textNode(" \t\r\n"))) {
+            BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                    expressionParams, Map.of("sendTime", emptyValue));
+
+            assertThat(result.renderedContent()).isEqualTo("后续节点");
+            assertThat(result.usedParams()).containsExactly("sendTime");
+        }
+    }
+
+    @Test
+    void shouldRenderLinkedTimeWithMilliseconds() {
+        ObjectNode sendTime = paramBlock(4L, "sendTime", ParamType.TIME);
+        sendTime.put("id", "time-param");
+        ObjectNode formatter = linkedTimeFormat("time-format", "yyyy-MM-dd HH:mm:ss.SSS");
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                linkedWorkspace(sendTime, formatter), 1L,
+                expressionParams, BlocklyValidationMode.DRAFT);
+
+        BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("sendTime",
+                        objectMapper.valueToTree("2011-12-13 11:12:13.123")));
+
+        assertThat(result.renderedContent()).isEqualTo("2011-12-13 11:12:13.123");
+    }
+
+    @Test
+    void shouldUseLinkedTimeFormatOnlyForOutput() {
+        ObjectNode sendTime = paramBlock(4L, "sendTime", ParamType.TIME);
+        sendTime.put("id", "time-param");
+        ObjectNode formatter = linkedTimeFormat("time-format", "yyyy-MM-dd");
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                linkedWorkspace(sendTime, formatter), 1L,
+                expressionParams, BlocklyValidationMode.DRAFT);
+
+        BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                expressionParams, Map.of("sendTime",
+                        objectMapper.valueToTree("2011-12-13 11:12:13.123")));
+
+        assertThat(result.renderedContent()).isEqualTo("2011-12-13");
+    }
+
+    @Test
     void shouldDistinguishLinkedTimeValueAndFormatErrors() {
         ObjectNode sendDate = paramBlock(4L, "sendTime", ParamType.TIME);
         sendDate.put("id", "time-param");
@@ -861,6 +992,89 @@ class MsgTemplateServiceImplTest {
 
         assertThat(evaluateExpression(greater, Map.of())).isEqualTo(true);
         assertThat(evaluateExpression(equals, Map.of("left", objectMapper.valueToTree(10)))).isEqualTo(true);
+    }
+
+    @Test
+    void shouldRenderElseBranchAndContinueWhenOptionalCompareParamIsEmpty() {
+        ObjectNode condition = compare("GT",
+                paramBlock(13L, "optionalAmount", ParamType.NUMBER),
+                paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode conditional = controlsIf(condition, textBlock("正确分支"));
+        addElse(conditional, textBlock("错误分支"));
+        ObjectNode content = objectMapper.createObjectNode();
+        content.put("type", BlocklyBlockTypes.TEXT_JOIN);
+        putInput(content, "ADD0", conditional);
+        putInput(content, "ADD1", textBlock("后续节点"));
+
+        for (Map<String, JsonNode> values : List.of(
+                Map.<String, JsonNode>of("right", objectMapper.valueToTree(4)),
+                Map.<String, JsonNode>of("optionalAmount", objectMapper.nullNode(),
+                        "right", objectMapper.valueToTree(4)),
+                Map.<String, JsonNode>of("optionalAmount", objectMapper.valueToTree(""),
+                        "right", objectMapper.valueToTree(4)))) {
+            assertThat(render(content, values).renderedContent())
+                    .isEqualTo("错误分支后续节点");
+        }
+    }
+
+    @Test
+    void shouldCompareLegalOptionalNumberAndTimeValues() {
+        ObjectNode numberCondition = compare("GT",
+                paramBlock(13L, "optionalAmount", ParamType.NUMBER),
+                paramBlock(2L, "right", ParamType.NUMBER));
+        ObjectNode numberConditional = controlsIf(numberCondition, textBlock("数字正确"));
+        addElse(numberConditional, textBlock("数字错误"));
+        assertThat(render(numberConditional, Map.of(
+                "optionalAmount", objectMapper.valueToTree(5),
+                "right", objectMapper.valueToTree(4))).renderedContent()).isEqualTo("数字正确");
+
+        ObjectNode timeCondition = compare("GT",
+                paramBlock(14L, "optionalTime", ParamType.TIME),
+                paramBlock(4L, "sendTime", ParamType.TIME));
+        ObjectNode timeConditional = controlsIf(timeCondition, textBlock("时间正确"));
+        addElse(timeConditional, textBlock("时间错误"));
+        assertThat(render(timeConditional, Map.of(
+                "optionalTime", objectMapper.valueToTree("2026-08-05 12:00:00"),
+                "sendTime", objectMapper.valueToTree("2026-08-05 11:00:00")))
+                .renderedContent()).isEqualTo("时间正确");
+    }
+
+    @Test
+    void shouldRejectNonEmptyInvalidCompareParamTypes() {
+        ObjectNode numberCompare = compare("GT",
+                paramBlock(13L, "optionalAmount", ParamType.NUMBER),
+                paramBlock(2L, "right", ParamType.NUMBER));
+        assertThatThrownBy(() -> evaluateExpression(numberCompare, Map.of(
+                "optionalAmount", objectMapper.valueToTree("not-number"),
+                "right", objectMapper.valueToTree(4))))
+                .isInstanceOf(BizException.class)
+                .hasMessage("logic_compare 的输入必须为数字");
+
+        ObjectNode timeCompare = compare("GT",
+                paramBlock(14L, "optionalTime", ParamType.TIME),
+                paramBlock(4L, "sendTime", ParamType.TIME));
+        assertThatThrownBy(() -> evaluateExpression(timeCompare, Map.of(
+                "optionalTime", objectMapper.valueToTree(123),
+                "sendTime", objectMapper.valueToTree("2026-08-05 11:00:00"))))
+                .isInstanceOf(BizException.class)
+                .hasMessage("logic_compare 的输入必须为时间");
+    }
+
+    @Test
+    void shouldKeepRequiredCompareParamValidation() {
+        ObjectNode condition = compare("GT",
+                paramBlock(1L, "left", ParamType.NUMBER),
+                paramBlock(2L, "right", ParamType.NUMBER));
+
+        assertThatThrownBy(() -> evaluateExpression(condition,
+                Map.of("right", objectMapper.valueToTree(4))))
+                .isInstanceOf(BizException.class)
+                .hasMessage("必填参数未提供：left");
+        assertThatThrownBy(() -> evaluateExpression(condition, Map.of(
+                "left", objectMapper.nullNode(),
+                "right", objectMapper.valueToTree(4))))
+                .isInstanceOf(BizException.class)
+                .hasMessage("必填参数值为空：left");
     }
 
     @Test
