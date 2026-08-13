@@ -318,12 +318,13 @@ class MsgSceneServiceImplTest {
     }
 
     @Test
-    void shouldDeleteScene() {
+    void shouldDeleteSceneAndAssociatedParams() {
         when(msgSceneMapper.selectById(1L)).thenReturn(scene(1L, "CODE_DELETE", CommonStatus.ENABLE.getCode()));
         when(msgSceneMapper.logicalDeleteById(eq(1L))).thenReturn(1);
 
         msgSceneService.delete(1L);
 
+        verify(msgSceneParamMapper).logicalDeleteBySceneId(1L);
         verify(msgSceneMapper).logicalDeleteById(1L);
     }
 

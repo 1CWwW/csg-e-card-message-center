@@ -23,6 +23,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.apache.ibatis.annotations.Select;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
@@ -253,6 +254,55 @@ class MsgChannelServiceImplTest {
     }
 
     @Test
+    void shouldAcceptPrioritySortAfterWhitelistValidation() {
+        ChannelPageQueryDTO query = pageQuery();
+        query.setSortField(" priority ");
+        query.setSortOrder(" ASC ");
+        when(msgChannelMapper.selectChannelPage(any(Page.class), eq(query)))
+                .thenReturn(new Page<>(1, 20));
+
+        msgChannelService.page(query);
+
+        assertThat(query.getSortField()).isEqualTo("priority");
+        assertThat(query.getSortOrder()).isEqualTo("ASC");
+        verify(msgChannelMapper).selectChannelPage(any(Page.class), eq(query));
+    }
+
+    @Test
+    void shouldRejectInvalidChannelPageSort() {
+        ChannelPageQueryDTO invalidField = pageQuery();
+        invalidField.setSortField("createTime");
+        invalidField.setSortOrder("ASC");
+        ChannelPageQueryDTO invalidOrder = pageQuery();
+        invalidOrder.setSortField("priority");
+        invalidOrder.setSortOrder("asc");
+        ChannelPageQueryDTO incompleteSort = pageQuery();
+        incompleteSort.setSortField("priority");
+
+        assertThatThrownBy(() -> msgChannelService.page(invalidField))
+                .isInstanceOf(BizException.class);
+        assertThatThrownBy(() -> msgChannelService.page(invalidOrder))
+                .isInstanceOf(BizException.class);
+        assertThatThrownBy(() -> msgChannelService.page(incompleteSort))
+                .isInstanceOf(BizException.class);
+        verify(msgChannelMapper, never()).selectChannelPage(any(Page.class), any(ChannelPageQueryDTO.class));
+    }
+
+    @Test
+    void shouldUseFixedStableOrderingInChannelPageSql() throws NoSuchMethodException {
+        Select select = MsgChannelMapper.class
+                .getMethod("selectChannelPage", Page.class, ChannelPageQueryDTO.class)
+                .getAnnotation(Select.class);
+        String sql = String.join(" ", select.value());
+
+        assertThat(sql)
+                .contains("ORDER BY c.priority ASC, c.create_time DESC, c.id DESC")
+                .contains("ORDER BY c.priority DESC, c.create_time DESC, c.id DESC")
+                .contains("ORDER BY c.create_time DESC, c.id DESC")
+                .doesNotContain("${");
+    }
+
+    @Test
     void shouldDeleteChannelAndUnits() {
         when(msgChannelMapper.selectById(1L)).thenReturn(channel(1L, ChannelType.SMS, CommonStatus.ENABLE.getCode()));
 
@@ -260,6 +310,13 @@ class MsgChannelServiceImplTest {
 
         verify(msgChannelUnitMapper).deleteByChannelId(1L);
         verify(msgChannelMapper).deleteById(1L);
+    }
+
+    private ChannelPageQueryDTO pageQuery() {
+        ChannelPageQueryDTO query = new ChannelPageQueryDTO();
+        query.setPageNum(1);
+        query.setPageSize(20);
+        return query;
     }
 
     @Test

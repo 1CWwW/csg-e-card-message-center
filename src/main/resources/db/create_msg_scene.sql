@@ -2,9 +2,9 @@ CREATE TABLE msg_scene
 (
     id          BIGINT           NOT NULL,
     scene_code  VARCHAR(64)      NOT NULL,
-    scene_name  VARCHAR(50)      NOT NULL,
+    scene_name  VARCHAR(200)     NOT NULL,
     module      VARCHAR(64)      NOT NULL,
-    description VARCHAR(200),
+    description VARCHAR(800),
     status      INT    DEFAULT 1 NOT NULL,
     create_by   VARCHAR(64),
     create_time TIMESTAMP,
@@ -181,7 +181,7 @@ CREATE INDEX idx_msg_channel_unit_unit_id ON msg_channel_unit (unit_id);
 CREATE TABLE msg_template
 (
     id            BIGINT                              NOT NULL,
-    template_name VARCHAR(50)                         NOT NULL,
+    template_name VARCHAR(200)                        NOT NULL,
     scene_id      BIGINT                              NOT NULL,
     channel_type  VARCHAR(32)                         NOT NULL,
     blockly_json  CLOB,

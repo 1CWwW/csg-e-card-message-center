@@ -38,7 +38,7 @@ public class SceneParamServiceImpl implements SceneParamService {
 
     private static final String SCENE_NOT_FOUND_MESSAGE = "场景不存在";
     private static final String PARAM_NOT_FOUND_MESSAGE = "场景参数不存在";
-    private static final String PARAM_DUPLICATE_MESSAGE = "同一场景下参数名已存在";
+    private static final String PARAM_DUPLICATE_MESSAGE = "当前列表已存在同名参数";
     private static final int NOT_REQUIRED = 0;
     private static final int REQUIRED = 1;
 
@@ -51,7 +51,8 @@ public class SceneParamServiceImpl implements SceneParamService {
         requireScene(sceneId);
         List<MsgSceneParam> params = msgSceneParamMapper.selectList(new LambdaQueryWrapper<MsgSceneParam>()
                 .eq(MsgSceneParam::getSceneId, sceneId)
-                .orderByAsc(MsgSceneParam::getSortOrder));
+                .orderByAsc(MsgSceneParam::getSortOrder)
+                .orderByAsc(MsgSceneParam::getId));
         SceneParamUsageIndex usageIndex = sceneParamUsageChecker.buildUsageIndex(sceneId);
         return params.stream().map(param -> toVO(param, usageIndex)).toList();
     }
@@ -250,7 +251,6 @@ public class SceneParamServiceImpl implements SceneParamService {
             throw new BizException(ErrorCode.PARAM_ERROR, "排序列表不能为空");
         }
         Set<Long> paramIds = new HashSet<>();
-        Set<Integer> sortOrders = new HashSet<>();
         for (SceneParamSortItemDTO item : request.getItems()) {
             if (item == null || item.getParamId() == null) {
                 throw new BizException(ErrorCode.PARAM_ERROR, "paramId不能为空");
@@ -258,9 +258,6 @@ public class SceneParamServiceImpl implements SceneParamService {
             validateSortOrder(item.getSortOrder());
             if (!paramIds.add(item.getParamId())) {
                 throw new BizException(ErrorCode.PARAM_ERROR, "paramId不能重复");
-            }
-            if (!sortOrders.add(item.getSortOrder())) {
-                throw new BizException(ErrorCode.PARAM_ERROR, "sortOrder不能重复");
             }
         }
     }

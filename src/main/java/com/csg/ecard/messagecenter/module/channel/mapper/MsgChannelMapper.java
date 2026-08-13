@@ -57,7 +57,17 @@ public interface MsgChannelMapper extends BaseMapper<MsgChannel> {
             "  WHERE cu.channel_id = c.id AND cu.unit_id = #{query.unitId}",
             ")",
             "</if>",
-            "ORDER BY c.channel_type ASC, c.priority ASC, c.create_time ASC",
+            "<choose>",
+            "<when test='query.sortField == \"priority\" and query.sortOrder == \"ASC\"'>",
+            "ORDER BY c.priority ASC, c.create_time DESC, c.id DESC",
+            "</when>",
+            "<when test='query.sortField == \"priority\" and query.sortOrder == \"DESC\"'>",
+            "ORDER BY c.priority DESC, c.create_time DESC, c.id DESC",
+            "</when>",
+            "<otherwise>",
+            "ORDER BY c.create_time DESC, c.id DESC",
+            "</otherwise>",
+            "</choose>",
             "</script>"
     })
     Page<MsgChannel> selectChannelPage(Page<MsgChannel> page, @Param("query") ChannelPageQueryDTO query);

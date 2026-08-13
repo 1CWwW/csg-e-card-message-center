@@ -1,6 +1,8 @@
 package com.csg.ecard.messagecenter.module.scene.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.csg.ecard.messagecenter.common.enums.ErrorCode;
 import com.csg.ecard.messagecenter.common.enums.ParamType;
 import com.csg.ecard.messagecenter.common.exception.BizException;
@@ -14,10 +16,12 @@ import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneMapper;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneParamMapper;
 import com.csg.ecard.messagecenter.module.scene.service.impl.SceneParamServiceImpl;
 import com.csg.ecard.messagecenter.module.scene.usage.SceneParamUsageChecker;
+import com.csg.ecard.messagecenter.module.scene.usage.SceneParamUsageIndex;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneParamUsageVO;
 import com.csg.ecard.messagecenter.module.scene.vo.SceneParamVO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -222,13 +226,31 @@ class SceneParamServiceImplTest {
     }
 
     @Test
-    void shouldRejectSortRequestAndAvoidPartialUpdate() {
+    void shouldAllowDuplicateSortOrder() {
         when(msgSceneMapper.selectById(1L)).thenReturn(scene(1L));
+        when(msgSceneParamMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(
+                param(1L, 1L, "merchantName"),
+                param(2L, 1L, "amount")
+        ));
 
-        assertThatThrownBy(() -> sceneParamService.sort(1L, sortRequest(item(1L, 1), item(2L, 1))))
-                .isInstanceOfSatisfying(BizException.class,
-                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.PARAM_ERROR.getCode()));
-        verify(msgSceneParamMapper, never()).updateById(any(MsgSceneParam.class));
+        sceneParamService.sort(1L, sortRequest(item(1L, 1), item(2L, 1)));
+
+        verify(msgSceneParamMapper, times(2)).updateById(any(MsgSceneParam.class));
+    }
+
+    @Test
+    void shouldOrderParamListBySortOrderThenId() {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), MsgSceneParam.class);
+        when(msgSceneMapper.selectById(1L)).thenReturn(scene(1L));
+        when(msgSceneParamMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(sceneParamUsageChecker.buildUsageIndex(1L)).thenReturn(new SceneParamUsageIndex(null));
+
+        sceneParamService.list(1L);
+
+        ArgumentCaptor<LambdaQueryWrapper<MsgSceneParam>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(msgSceneParamMapper).selectList(captor.capture());
+        assertThat(captor.getValue().getSqlSegment())
+                .contains("sort_order ASC", "id ASC");
     }
 
     @Test

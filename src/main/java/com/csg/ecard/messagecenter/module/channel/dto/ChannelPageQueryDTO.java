@@ -37,4 +37,12 @@ public class ChannelPageQueryDTO {
 
     @Schema(description = "适用单位ID")
     private String unitId;
+
+    @Schema(description = "排序字段，仅支持 priority；不传时按创建时间倒序",
+            allowableValues = {"priority"}, example = "priority")
+    private String sortField;
+
+    @Schema(description = "排序方向，使用 priority 排序时必传",
+            allowableValues = {"ASC", "DESC"}, example = "ASC")
+    private String sortOrder;
 }

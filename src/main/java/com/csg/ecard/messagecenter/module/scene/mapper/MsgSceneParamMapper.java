@@ -24,6 +24,15 @@ public interface MsgSceneParamMapper extends BaseMapper<MsgSceneParam> {
     int logicalDeleteById(@Param("id") Long id);
 
     /**
+     * 按场景逻辑删除全部参数，并以各参数主键作为删除标记。
+     *
+     * @param sceneId 场景ID
+     * @return 受影响行数
+     */
+    @Update("UPDATE msg_scene_param SET deleted = id WHERE scene_id = #{sceneId} AND deleted = 0")
+    int logicalDeleteBySceneId(@Param("sceneId") Long sceneId);
+
+    /**
      * 查询场景下最大排序号。
      *
      * @param sceneId 场景ID

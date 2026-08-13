@@ -54,7 +54,8 @@ public class MsgChannelController {
      * @return 渠道分页结果
      */
     @GetMapping("/list")
-    @Operation(summary = "渠道分页查询")
+    @Operation(summary = "渠道分页查询",
+            description = "默认按创建时间倒序、ID倒序；指定priority排序时，按优先级、创建时间倒序、ID倒序查询。")
     public CommonResult<PageResult<MsgChannelVO>> list(@ParameterObject @Valid ChannelPageQueryDTO query) {
         return CommonResult.success(msgChannelService.page(query));
     }

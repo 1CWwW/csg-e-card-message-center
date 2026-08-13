@@ -10,9 +10,13 @@ import com.csg.ecard.messagecenter.common.result.CommonResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.csg.ecard.messagecenter.common.utils.MessageIdGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.csg.ecard.messagecenter.framework.handler.GlobalExceptionHandler;
+import com.csg.ecard.messagecenter.module.scene.dto.SceneParamCreateDTO;
 import com.csg.ecard.messagecenter.module.scene.vo.MsgSceneVO;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpInputMessage;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.BindException;
@@ -23,6 +27,7 @@ import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -120,6 +125,37 @@ class CommonModelTest {
 
         assertThat(root.has("traceId")).isFalse();
         assertThat(root.has("timestamp")).isFalse();
+    }
+
+    @Test
+    void shouldReturnFriendlyMessageWhenJsonIntegerOutOfRange() {
+        InvalidFormatException cause = InvalidFormatException.from(null,
+                "Numeric value out of range of int", 9_007_199_254_740_991L, Integer.class);
+        cause.prependPath(new Object(), "sortOrder");
+        HttpMessageNotReadableException exception = new HttpMessageNotReadableException(
+                "JSON parse error", cause, mock(HttpInputMessage.class));
+
+        CommonResult<Void> result = new GlobalExceptionHandler().handleHttpMessageNotReadable(exception);
+        JsonNode root = new ObjectMapper().valueToTree(result);
+
+        assertThat(root.path("message").asText()).isEqualTo("sortOrder数值超出允许范围");
+    }
+
+    @Test
+    void shouldReturnFriendlyMessageWhenJsonIntegerHasTooManyDigits() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        String json = """
+                {"sortOrder": 111111111111111111111111111111111111111111111111111111}
+                """;
+
+        Throwable cause = catchThrowable(() -> objectMapper.readValue(json, SceneParamCreateDTO.class));
+        HttpMessageNotReadableException exception = new HttpMessageNotReadableException(
+                "JSON parse error", cause, mock(HttpInputMessage.class));
+
+        CommonResult<Void> result = new GlobalExceptionHandler().handleHttpMessageNotReadable(exception);
+        JsonNode root = objectMapper.valueToTree(result);
+
+        assertThat(root.path("message").asText()).isEqualTo("sortOrder数值超出允许范围");
     }
 
     @Test

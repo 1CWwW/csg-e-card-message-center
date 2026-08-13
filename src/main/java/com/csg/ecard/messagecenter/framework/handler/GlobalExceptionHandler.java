@@ -3,6 +3,9 @@ package com.csg.ecard.messagecenter.framework.handler;
 import com.csg.ecard.messagecenter.common.enums.ErrorCode;
 import com.csg.ecard.messagecenter.common.exception.BizException;
 import com.csg.ecard.messagecenter.common.result.CommonResult;
+import com.fasterxml.jackson.core.exc.InputCoercionException;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
@@ -97,13 +100,36 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({
             MissingServletRequestParameterException.class,
             MethodArgumentTypeMismatchException.class,
-            HttpMessageNotReadableException.class,
             IllegalArgumentException.class
     })
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public CommonResult<Void> handleBadRequest(Exception ex) {
         log.warn("Bad request: {}", ex.getMessage());
         return CommonResult.fail(ErrorCode.PARAM_ERROR, ex.getMessage());
+    }
+
+    /**
+     * 处理 JSON 请求体格式错误，避免向前端暴露底层解析异常。
+     *
+     * @param ex JSON 解析异常
+     * @return 统一失败响应
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public CommonResult<Void> handleHttpMessageNotReadable(HttpMessageNotReadableException ex) {
+        log.warn("Invalid JSON request body: {}", ex.getMessage());
+        InvalidFormatException invalidFormatException = findCause(ex, InvalidFormatException.class);
+        InputCoercionException inputCoercionException = findCause(ex, InputCoercionException.class);
+        boolean numericOutOfRange = invalidFormatException != null
+                && isNumericType(invalidFormatException.getTargetType());
+        numericOutOfRange = numericOutOfRange || inputCoercionException != null
+                && isNumericType(inputCoercionException.getTargetType());
+        if (numericOutOfRange) {
+            JsonMappingException mappingException = findCause(ex, JsonMappingException.class);
+            return CommonResult.fail(ErrorCode.PARAM_ERROR,
+                    resolveJsonFieldName(mappingException) + "数值超出允许范围");
+        }
+        return CommonResult.fail(ErrorCode.PARAM_ERROR, "请求体格式不正确");
     }
 
     /**
@@ -146,5 +172,35 @@ public class GlobalExceptionHandler {
 
     private String formatFieldError(FieldError fieldError) {
         return fieldError.getField() + " " + fieldError.getDefaultMessage();
+    }
+
+    private String resolveJsonFieldName(JsonMappingException ex) {
+        if (ex == null || ex.getPath().isEmpty()) {
+            return "字段";
+        }
+        String fieldName = ex.getPath().get(ex.getPath().size() - 1).getFieldName();
+        return fieldName == null ? "字段" : fieldName;
+    }
+
+    private boolean isNumericType(Class<?> targetType) {
+        return targetType != null && (Number.class.isAssignableFrom(targetType)
+                || targetType == byte.class
+                || targetType == short.class
+                || targetType == int.class
+                || targetType == long.class
+                || targetType == float.class
+                || targetType == double.class);
+    }
+
+    private <T extends Throwable> T findCause(Throwable throwable, Class<T> type) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (type.isInstance(current)) {
+                return type.cast(current);
+            }
+            Throwable cause = current.getCause();
+            current = cause == current ? null : cause;
+        }
+        return null;
     }
 }

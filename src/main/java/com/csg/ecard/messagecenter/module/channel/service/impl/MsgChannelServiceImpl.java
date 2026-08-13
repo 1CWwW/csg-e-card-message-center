@@ -46,6 +46,9 @@ public class MsgChannelServiceImpl implements MsgChannelService {
 
     private static final String CHANNEL_NOT_FOUND_MESSAGE = "渠道不存在";
     private static final String CHANNEL_NAME_DUPLICATE_MESSAGE = "渠道名称已存在";
+    private static final String SORT_FIELD_PRIORITY = "priority";
+    private static final String SORT_ORDER_ASC = "ASC";
+    private static final String SORT_ORDER_DESC = "DESC";
 
     private final MsgChannelMapper msgChannelMapper;
     private final MsgChannelUnitMapper msgChannelUnitMapper;
@@ -66,6 +69,7 @@ public class MsgChannelServiceImpl implements MsgChannelService {
     @Override
     public PageResult<MsgChannelVO> page(ChannelPageQueryDTO query) {
         validatePageQuery(query);
+        normalizeAndValidateSort(query);
         validateOptionalChannelType(query.getChannelType());
         validateOptionalStatus(query.getStatus());
         trimQuery(query);
@@ -275,6 +279,26 @@ public class MsgChannelServiceImpl implements MsgChannelService {
         query.setChannelName(trimToNull(query.getChannelName()));
         query.setChannelType(trimToNull(query.getChannelType()));
         query.setUnitId(trimToNull(query.getUnitId()));
+    }
+
+    private void normalizeAndValidateSort(ChannelPageQueryDTO query) {
+        query.setSortField(trimToNull(query.getSortField()));
+        query.setSortOrder(trimToNull(query.getSortOrder()));
+        boolean hasSortField = query.getSortField() != null;
+        boolean hasSortOrder = query.getSortOrder() != null;
+        if (hasSortField != hasSortOrder) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "sortField和sortOrder必须同时传入");
+        }
+        if (!hasSortField) {
+            return;
+        }
+        if (!SORT_FIELD_PRIORITY.equals(query.getSortField())) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "sortField仅支持priority");
+        }
+        if (!SORT_ORDER_ASC.equals(query.getSortOrder())
+                && !SORT_ORDER_DESC.equals(query.getSortOrder())) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "sortOrder仅支持ASC或DESC");
+        }
     }
 
     private String trimToNull(String value) {
