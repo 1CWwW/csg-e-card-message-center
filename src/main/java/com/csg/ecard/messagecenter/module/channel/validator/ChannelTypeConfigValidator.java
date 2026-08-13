@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 @Component
 public class ChannelTypeConfigValidator {
 
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
 
     /**
      * 按渠道类型校验并返回可入库的配置。
@@ -40,7 +40,6 @@ public class ChannelTypeConfigValidator {
         String senderNumber = trim(config.getSenderNumber());
         requireText(senderNumber, "短信发送号码不能为空");
         requireMaxLength(senderNumber, 20, "短信发送号码长度不能超过20");
-        rejectText(config.getSenderEmail(), "短信渠道不允许配置发送邮箱");
         rejectText(config.getAppId(), "短信渠道不允许配置应用ID");
         return mapOf("senderNumber", senderNumber);
     }
@@ -62,13 +61,11 @@ public class ChannelTypeConfigValidator {
         requireText(appId, "eLink应用ID不能为空");
         requireMaxLength(appId, 64, "eLink应用ID长度不能超过64");
         rejectText(config.getSenderNumber(), "eLink渠道不允许配置发送号码");
-        rejectText(config.getSenderEmail(), "eLink渠道不允许配置发送邮箱");
         return mapOf("appId", appId);
     }
 
     private Map<String, String> validateInApp(ChannelTypeConfigDTO config) {
         rejectText(config.getSenderNumber(), "站内信渠道不允许配置发送号码");
-        rejectText(config.getSenderEmail(), "站内信渠道不允许配置发送邮箱");
         rejectText(config.getAppId(), "站内信渠道不允许配置应用ID");
         return Map.of();
     }

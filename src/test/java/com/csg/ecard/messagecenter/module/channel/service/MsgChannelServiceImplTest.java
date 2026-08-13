@@ -113,6 +113,33 @@ class MsgChannelServiceImplTest {
     }
 
     @Test
+    void shouldRejectEmailWhenSenderEmailMissing() {
+        ChannelCreateDTO request = createRequest(ChannelType.EMAIL);
+        request.getTypeConfig().setSenderEmail(" ");
+
+        assertThatThrownBy(() -> msgChannelService.create(request))
+                .isInstanceOfSatisfying(BizException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.PARAM_ERROR.getCode()));
+    }
+
+    @Test
+    void shouldIgnoreSenderEmailForNonEmailChannel() {
+        ChannelCreateDTO request = smsCreateRequest();
+        request.getTypeConfig().setSenderEmail("not-an-email");
+        when(msgChannelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(msgChannelMapper.insert(any(MsgChannel.class))).thenAnswer(invocation -> {
+            MsgChannel channel = invocation.getArgument(0);
+            channel.setId(1L);
+            return 1;
+        });
+
+        MsgChannelVO result = msgChannelService.create(request);
+
+        assertThat(result.getTypeConfig().getSenderNumber()).isEqualTo("10690000");
+        assertThat(result.getTypeConfig().getSenderEmail()).isNull();
+    }
+
+    @Test
     void shouldRejectElinkWhenAppIdMissing() {
         ChannelCreateDTO request = createRequest(ChannelType.ELINK);
         request.getTypeConfig().setAppId(null);
