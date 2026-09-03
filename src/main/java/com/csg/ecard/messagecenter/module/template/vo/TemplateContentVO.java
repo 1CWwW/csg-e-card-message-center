@@ -28,6 +28,7 @@ public class TemplateContentVO {
 
     private Boolean valid;
 
+    @Schema(description = "内容校验错误列表；参数错误包含参数名称或参数标签")
     private List<String> errors = Collections.emptyList();
 
     private LocalDateTime updatedAt;

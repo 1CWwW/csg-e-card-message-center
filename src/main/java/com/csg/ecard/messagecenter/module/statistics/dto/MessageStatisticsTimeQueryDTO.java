@@ -12,6 +12,7 @@ import lombok.Setter;
 @Schema(description = "按时间统计查询条件")
 public class MessageStatisticsTimeQueryDTO extends MessageStatisticsQueryDTO {
 
-    @Schema(description = "时间粒度：DAY、WEEK、MONTH，默认DAY")
+    @Schema(description = "时间粒度：DAY、WEEK、MONTH，默认DAY",
+            allowableValues = {"DAY", "WEEK", "MONTH"}, defaultValue = "DAY")
     private String granularity;
 }

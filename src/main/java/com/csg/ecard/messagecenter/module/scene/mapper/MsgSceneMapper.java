@@ -15,6 +15,19 @@ import java.util.List;
 public interface MsgSceneMapper extends BaseMapper<MsgScene> {
 
     /**
+     * 查询模板页面使用的场景筛选项。
+     *
+     * @return 场景筛选项基础数据
+     */
+    @Select({
+            "SELECT id, scene_code AS sceneCode, scene_name AS sceneName, status",
+            "FROM msg_scene",
+            "WHERE deleted = 0",
+            "ORDER BY scene_name ASC, id ASC"
+    })
+    List<MsgScene> selectTemplateFilterOptions();
+
+    /**
      * 聚合查询未删除场景的概览数据。
      *
      * @return 场景概览聚合结果

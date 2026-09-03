@@ -87,7 +87,7 @@ class MsgChannelServiceImplTest {
 
         assertThat(result.getId()).isEqualTo(9007199254740993L);
         assertThat(result.getChannelType()).isEqualTo(ChannelType.SMS.getCode());
-        assertThat(result.getTypeConfig().getSenderNumber()).isEqualTo("10690000");
+        assertThat(result.getTypeConfig().getSenderNumber()).isEqualTo("13800138000");
         assertThat(result.getUnitCount()).isEqualTo(2L);
         assertThat(result.getUniqueUnitCount()).isEqualTo(2L);
         verify(msgChannelUnitMapper, org.mockito.Mockito.times(2)).insert(any(MsgChannelUnit.class));
@@ -99,7 +99,37 @@ class MsgChannelServiceImplTest {
         request.getTypeConfig().setSenderNumber(null);
 
         assertThatThrownBy(() -> msgChannelService.create(request))
-                .isInstanceOf(BizException.class);
+                .isInstanceOfSatisfying(BizException.class,
+                        ex -> assertThat(ex.getMessage()).isEqualTo("请输入正确的手机号码"));
+    }
+
+    @Test
+    void shouldTrimAndValidateSmsSenderNumber() {
+        ChannelCreateDTO request = smsCreateRequest();
+        request.getTypeConfig().setSenderNumber(" 13800138000 ");
+        when(msgChannelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(msgChannelMapper.insert(any(MsgChannel.class))).thenAnswer(invocation -> {
+            MsgChannel channel = invocation.getArgument(0);
+            channel.setId(1L);
+            return 1;
+        });
+
+        MsgChannelVO result = msgChannelService.create(request);
+
+        assertThat(result.getTypeConfig().getSenderNumber()).isEqualTo("13800138000");
+    }
+
+    @Test
+    void shouldApplyMobileValidationWhenUpdatingSms() {
+        MsgChannel existed = channel(1L, ChannelType.SMS, CommonStatus.ENABLE.getCode());
+        when(msgChannelMapper.selectById(1L)).thenReturn(existed);
+        when(msgChannelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        ChannelUpdateDTO request = smsUpdateRequest();
+        request.getTypeConfig().setSenderNumber("10690000");
+
+        assertThatThrownBy(() -> msgChannelService.update(1L, request))
+                .isInstanceOfSatisfying(BizException.class,
+                        ex -> assertThat(ex.getMessage()).isEqualTo("请输入正确的手机号码"));
     }
 
     @Test
@@ -135,7 +165,7 @@ class MsgChannelServiceImplTest {
 
         MsgChannelVO result = msgChannelService.create(request);
 
-        assertThat(result.getTypeConfig().getSenderNumber()).isEqualTo("10690000");
+        assertThat(result.getTypeConfig().getSenderNumber()).isEqualTo("13800138000");
         assertThat(result.getTypeConfig().getSenderEmail()).isNull();
     }
 
@@ -149,12 +179,57 @@ class MsgChannelServiceImplTest {
     }
 
     @Test
-    void shouldRejectInAppWhenUnexpectedConfigProvided() {
-        ChannelCreateDTO request = createRequest(ChannelType.IN_APP);
-        request.getTypeConfig().setSenderNumber("10690000");
+    void shouldRejectSixDigitPriorityWhenCreatingElinkChannel() {
+        ChannelCreateDTO request = createRequest(ChannelType.ELINK);
+        request.setPriority(100_000);
 
         assertThatThrownBy(() -> msgChannelService.create(request))
-                .isInstanceOf(BizException.class);
+                .isInstanceOfSatisfying(BizException.class,
+                        ex -> assertThat(ex.getMessage()).isEqualTo("eLink应用消息优先级最多输入5位数字"));
+    }
+
+    @Test
+    void shouldAcceptFiveDigitPriorityWhenCreatingElinkChannel() {
+        ChannelCreateDTO request = createRequest(ChannelType.ELINK);
+        request.setPriority(99_999);
+        when(msgChannelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(msgChannelMapper.insert(any(MsgChannel.class))).thenAnswer(invocation -> {
+            MsgChannel channel = invocation.getArgument(0);
+            channel.setId(1L);
+            return 1;
+        });
+
+        MsgChannelVO result = msgChannelService.create(request);
+
+        assertThat(result.getPriority()).isEqualTo(99_999);
+    }
+
+    @Test
+    void shouldRejectSixDigitPriorityWhenUpdatingElinkChannel() {
+        MsgChannel existed = channel(1L, ChannelType.ELINK, CommonStatus.ENABLE.getCode());
+        when(msgChannelMapper.selectById(1L)).thenReturn(existed);
+        ChannelUpdateDTO request = updateRequest(ChannelType.ELINK);
+        request.setPriority(100_000);
+
+        assertThatThrownBy(() -> msgChannelService.update(1L, request))
+                .isInstanceOfSatisfying(BizException.class,
+                        ex -> assertThat(ex.getMessage()).isEqualTo("eLink应用消息优先级最多输入5位数字"));
+    }
+
+    @Test
+    void shouldIgnoreSenderNumberForNonSmsChannel() {
+        ChannelCreateDTO request = createRequest(ChannelType.IN_APP);
+        request.getTypeConfig().setSenderNumber("10690000");
+        when(msgChannelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(msgChannelMapper.insert(any(MsgChannel.class))).thenAnswer(invocation -> {
+            MsgChannel channel = invocation.getArgument(0);
+            channel.setId(1L);
+            return 1;
+        });
+
+        MsgChannelVO result = msgChannelService.create(request);
+
+        assertThat(result.getTypeConfig().getSenderNumber()).isNull();
     }
 
     @Test
@@ -412,9 +487,13 @@ class MsgChannelServiceImplTest {
     }
 
     private ChannelUpdateDTO emailUpdateRequest() {
+        return updateRequest(ChannelType.EMAIL);
+    }
+
+    private ChannelUpdateDTO updateRequest(ChannelType channelType) {
         ChannelUpdateDTO request = new ChannelUpdateDTO();
-        request.setChannelName("EMAIL_CHANNEL_NEW");
-        request.setTypeConfig(typeConfig(ChannelType.EMAIL));
+        request.setChannelName(channelType.getCode() + "_CHANNEL_NEW");
+        request.setTypeConfig(typeConfig(channelType));
         request.setPriority(2);
         request.setStatus(CommonStatus.DISABLE.getCode());
         request.setUnitIds(List.of("UNIT_A"));
@@ -424,7 +503,7 @@ class MsgChannelServiceImplTest {
     private ChannelTypeConfigDTO typeConfig(ChannelType channelType) {
         ChannelTypeConfigDTO config = new ChannelTypeConfigDTO();
         if (channelType == ChannelType.SMS) {
-            config.setSenderNumber("10690000");
+            config.setSenderNumber("13800138000");
         } else if (channelType == ChannelType.EMAIL) {
             config.setSenderEmail("sender@example.com");
         } else if (channelType == ChannelType.ELINK) {
@@ -448,7 +527,7 @@ class MsgChannelServiceImplTest {
 
     private String typeConfigJson(ChannelType channelType) {
         return switch (channelType) {
-            case SMS -> "{\"senderNumber\":\"10690000\"}";
+            case SMS -> "{\"senderNumber\":\"13800138000\"}";
             case EMAIL -> "{\"senderEmail\":\"sender@example.com\"}";
             case ELINK -> "{\"appId\":\"APP001\"}";
             case IN_APP -> "{}";

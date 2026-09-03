@@ -118,7 +118,7 @@ public class RemoteOrganizationProvider extends AbstractOrganizationProvider {
      */
     private Collection<OrganizationNode> visibleNodes(Collection<OrganizationNode> nodes) {
         return nodes.stream()
-                .filter(node -> !Integer.valueOf(0).equals(node.getState()))
+                .filter(node -> Integer.valueOf(1).equals(node.getState()))
                 .toList();
     }
 

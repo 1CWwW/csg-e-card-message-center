@@ -139,6 +139,7 @@ final class OrganizationIndex {
     private List<OrganizationNode> ancestors(OrganizationNode node) {
         List<OrganizationNode> reversed = new ArrayList<>();
         Set<String> visited = new HashSet<>();
+        visited.add(node.getOrgId());
         String current = node.getParentOrgId();
         for (int depth = 0; current != null && depth < 100 && visited.add(current); depth++) {
             OrganizationNode parent = nodeById.get(current);
@@ -157,7 +158,7 @@ final class OrganizationIndex {
     }
 
     private static boolean visible(OrganizationNode node) {
-        return !Integer.valueOf(0).equals(node.getState());
+        return Integer.valueOf(1).equals(node.getState());
     }
 
     private static boolean containsIgnoreCase(String value, String lowerKeyword) {

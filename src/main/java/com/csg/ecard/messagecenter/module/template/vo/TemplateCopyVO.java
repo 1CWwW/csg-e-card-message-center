@@ -19,5 +19,12 @@ public class TemplateCopyVO {
 
     private String templateName;
 
+    @JsonLongId
+    @Schema(type = "string")
+    private Long sceneId;
+
+    @Schema(allowableValues = {"SMS", "EMAIL", "ELINK", "IN_APP"})
+    private String channelType;
+
     private Boolean hasContent;
 }

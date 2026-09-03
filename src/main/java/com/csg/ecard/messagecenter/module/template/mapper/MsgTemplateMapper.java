@@ -16,23 +16,17 @@ import java.util.List;
 public interface MsgTemplateMapper extends BaseMapper<MsgTemplate> {
 
     /**
-     * 聚合查询未删除模板的概览数据。
+     * 查询未删除模板的概览统计候选数据。
      *
-     * @return 模板概览聚合结果
+     * @return 模板概览统计候选数据
      */
     @Select({
-            "SELECT",
-            "COUNT(1) AS total,",
-            "COALESCE(SUM(CASE WHEN t.blockly_json IS NOT NULL",
-            "  AND LENGTH(TRIM(t.blockly_json)) > 0 THEN 1 ELSE 0 END), 0) AS editedCount,",
-            "COALESCE(SUM(CASE WHEN t.status = 1 THEN 1 ELSE 0 END), 0) AS enabledCount,",
-            "COALESCE(SUM(CASE WHEN t.blockly_json IS NULL",
-            "  OR LENGTH(TRIM(t.blockly_json)) = 0 THEN 1 ELSE 0 END), 0) AS pendingCount",
+            "SELECT t.id, t.scene_id, t.blockly_json, t.status",
             "FROM msg_template t",
             "JOIN msg_scene s ON s.id = t.scene_id AND s.deleted = 0",
             "WHERE t.deleted = 0"
     })
-    TemplateOverviewRow selectOverview();
+    List<TemplateQueryRow> selectOverviewTemplates();
 
     /**
      * 分页查询模板及关联场景、单位数量。
@@ -73,17 +67,54 @@ public interface MsgTemplateMapper extends BaseMapper<MsgTemplate> {
             "  WHERE tu.template_id = t.id AND tu.unit_id = #{query.unitId}",
             ")",
             "</if>",
-            "<if test='query.contentStatus != null and query.contentStatus == 1'>",
-            "AND t.blockly_json IS NOT NULL AND LENGTH(TRIM(t.blockly_json)) &gt; 0",
-            "</if>",
-            "<if test='query.contentStatus != null and query.contentStatus == 2'>",
-            "AND (t.blockly_json IS NULL OR LENGTH(TRIM(t.blockly_json)) = 0)",
-            "</if>",
-            "ORDER BY t.create_time ASC, t.id DESC",
+            "ORDER BY t.update_time DESC, t.id DESC",
             "</script>"
     })
     Page<TemplateQueryRow> selectTemplatePage(Page<TemplateQueryRow> page,
                                                @Param("query") TemplatePageQueryDTO query);
+
+    /**
+     * 查询符合基础条件的全部模板，用于按有效 Blockly 内容精确筛选。
+     *
+     * @param query 查询条件
+     * @return 模板查询结果
+     */
+    @Select({
+            "<script>",
+            "SELECT t.id, t.template_name, t.scene_id, s.scene_code, s.scene_name,",
+            "t.channel_type, t.blockly_json, t.status,",
+            "COALESCE(unit_count.unit_count, 0) AS unit_count,",
+            "t.create_time, t.update_time",
+            "FROM msg_template t",
+            "JOIN msg_scene s ON s.id = t.scene_id AND s.deleted = 0",
+            "LEFT JOIN (",
+            "  SELECT template_id, COUNT(1) AS unit_count",
+            "  FROM msg_template_unit",
+            "  GROUP BY template_id",
+            ") unit_count ON unit_count.template_id = t.id",
+            "WHERE t.deleted = 0",
+            "<if test='query.templateName != null and query.templateName != \"\"'>",
+            "AND t.template_name LIKE '%' || #{query.templateName} || '%'",
+            "</if>",
+            "<if test='query.sceneId != null'>",
+            "AND t.scene_id = #{query.sceneId}",
+            "</if>",
+            "<if test='query.channelType != null and query.channelType != \"\"'>",
+            "AND t.channel_type = #{query.channelType}",
+            "</if>",
+            "<if test='query.status != null'>",
+            "AND t.status = #{query.status}",
+            "</if>",
+            "<if test='query.unitId != null and query.unitId != \"\"'>",
+            "AND EXISTS (",
+            "  SELECT 1 FROM msg_template_unit tu",
+            "  WHERE tu.template_id = t.id AND tu.unit_id = #{query.unitId}",
+            ")",
+            "</if>",
+            "ORDER BY t.update_time DESC, t.id DESC",
+            "</script>"
+    })
+    List<TemplateQueryRow> selectTemplateList(@Param("query") TemplatePageQueryDTO query);
 
     /**
      * 查询模板详情关联数据。

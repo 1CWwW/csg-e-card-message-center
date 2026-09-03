@@ -1,5 +1,6 @@
 package com.csg.ecard.messagecenter.module.statistics.dto;
 
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
 import lombok.Setter;
@@ -36,7 +37,8 @@ public class MessageStatisticsQueryDTO {
     @Schema(description = "是否包含所选单位的全部下级单位；默认false")
     private Boolean includeSubUnits;
 
-    @Schema(description = "模板ID，按字符串传递；为空表示不筛选")
+    @ArraySchema(arraySchema = @Schema(description = "模板ID数组；为空表示不筛选"),
+            schema = @Schema(type = "string", description = "模板ID，按字符串传递"))
     private List<Long> templateIds;
 
     @Schema(description = "消息原始调用方式：SYNC、ASYNC；为空表示不筛选")

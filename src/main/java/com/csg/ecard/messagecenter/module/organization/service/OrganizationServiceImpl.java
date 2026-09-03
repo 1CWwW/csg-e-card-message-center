@@ -11,7 +11,6 @@ import com.csg.ecard.messagecenter.infrastructure.organization.OrganizationProvi
 import com.csg.ecard.messagecenter.module.organization.dto.OrganizationResolveDTO;
 import com.csg.ecard.messagecenter.module.organization.vo.OrganizationLazyNodeVO;
 import com.csg.ecard.messagecenter.module.organization.vo.OrganizationNodeVO;
-import com.csg.ecard.messagecenter.module.organization.vo.OrganizationResolvedVO;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -81,24 +80,24 @@ public class OrganizationServiceImpl implements OrganizationService, Organizatio
     }
 
     @Override
-    public List<OrganizationResolvedVO> resolve(OrganizationResolveDTO request) {
+    public List<OrganizationLazyNodeVO> resolve(OrganizationResolveDTO request) {
         List<String> orgIds = normalizeOrgIds(request == null ? null : request.getOrgIds());
         if (orgIds.size() > organizationProperties.getTree().getResolveLimit()) {
             throw new BizException(ErrorCode.PARAM_ERROR,
                     "orgIds数量不能超过" + organizationProperties.getTree().getResolveLimit());
         }
-        return toResolvedVOs(filterByScope(organizationProvider.resolve(orgIds), currentScope()));
+        return toFlatVOs(filterByScope(organizationProvider.resolve(orgIds), currentScope()));
     }
 
     @Override
-    public List<OrganizationResolvedVO> search(String keyword) {
+    public List<OrganizationLazyNodeVO> search(String keyword) {
         String normalized = trimToNull(keyword);
         if (normalized == null) {
             return List.of();
         }
         int limit = Math.max(1, organizationProperties.getTree().getSearchLimit());
         String scopeOrgId = currentScope();
-        return toResolvedVOs(filterByScope(
+        return toFlatVOs(filterByScope(
                 organizationProvider.search(normalized, limit, scopeOrgId), scopeOrgId));
     }
 
@@ -124,13 +123,14 @@ public class OrganizationServiceImpl implements OrganizationService, Organizatio
         if (parentOrgId == null && scopeOrgId != null) {
             nodes = organizationProvider.resolve(List.of(scopeOrgId)).stream()
                     .map(OrganizationPath::node)
-                    .filter(node -> !Integer.valueOf(0).equals(node.getState()))
+                    .filter(this::isActive)
                     .toList();
         } else if (scopeOrgId != null && !organizationProvider.isWithinScope(parentOrgId, scopeOrgId)) {
             nodes = List.of();
         } else {
             nodes = organizationProvider.children(parentOrgId);
         }
+        nodes = nodes.stream().filter(this::isActive).toList();
         if (scopeOrgId != null) {
             nodes = nodes.stream()
                     .filter(node -> organizationProvider.isWithinScope(node.getOrgId(), scopeOrgId))
@@ -146,35 +146,19 @@ public class OrganizationServiceImpl implements OrganizationService, Organizatio
             return List.of();
         }
         return paths.stream()
+                .filter(path -> path != null && path.node() != null && isActive(path.node()))
                 .filter(path -> scopeOrgId == null
                         || organizationProvider.isWithinScope(path.node().getOrgId(), scopeOrgId))
-                .map(path -> scopeOrgId == null ? path : new OrganizationPath(path.node(), path.ancestors().stream()
-                        .filter(node -> organizationProvider.isWithinScope(node.getOrgId(), scopeOrgId))
-                        .toList()))
                 .toList();
     }
 
-    private List<OrganizationResolvedVO> toResolvedVOs(List<OrganizationPath> paths) {
-        Set<String> ancestorIds = paths.stream()
-                .flatMap(path -> path.ancestors().stream())
-                .map(OrganizationNode::getOrgId)
-                .collect(java.util.stream.Collectors.toSet());
-        Set<String> parentsWithChildren = organizationProvider.parentOrgIdsWithChildren(ancestorIds);
-        return paths.stream().map(path -> {
-            OrganizationNode node = path.node();
-            OrganizationResolvedVO vo = new OrganizationResolvedVO();
-            vo.setOrgId(node.getOrgId());
-            vo.setOrgName(node.getOrgName());
-            vo.setOrgCode(node.getOrgCode());
-            vo.setParentOrgId(node.getParentOrgId());
-            vo.setNameFullPath(node.getNameFullPath());
-            vo.setOrgLevel(node.getOrgLevel());
-            vo.setState(node.getState());
-            vo.setAncestors(path.ancestors().stream()
-                    .map(ancestor -> toLazyVO(ancestor, parentsWithChildren.contains(ancestor.getOrgId())))
-                    .toList());
-            return vo;
-        }).toList();
+    private List<OrganizationLazyNodeVO> toFlatVOs(List<OrganizationPath> paths) {
+        List<OrganizationNode> nodes = paths.stream().map(OrganizationPath::node).toList();
+        Set<String> parentsWithChildren = organizationProvider.parentOrgIdsWithChildren(
+                nodes.stream().map(OrganizationNode::getOrgId).toList());
+        return nodes.stream()
+                .map(node -> toLazyVO(node, parentsWithChildren.contains(node.getOrgId())))
+                .toList();
     }
 
     private OrganizationLazyNodeVO toLazyVO(OrganizationNode node, boolean hasChildren) {
@@ -271,6 +255,10 @@ public class OrganizationServiceImpl implements OrganizationService, Organizatio
 
     private String currentScope() {
         return trimToNull(CurrentUserContext.getOrgId());
+    }
+
+    private boolean isActive(OrganizationNode node) {
+        return Integer.valueOf(1).equals(node.getState());
     }
 
     private String trimToNull(String value) {

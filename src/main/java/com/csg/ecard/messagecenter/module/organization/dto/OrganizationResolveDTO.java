@@ -9,11 +9,11 @@ import lombok.Setter;
 import java.util.List;
 
 /**
- * 批量解析组织路径请求。
+ * 批量解析已选组织请求。
  */
 @Getter
 @Setter
-@Schema(description = "批量解析组织路径请求")
+@Schema(description = "批量解析已选组织请求")
 public class OrganizationResolveDTO {
 
     @NotEmpty(message = "orgIds不能为空")

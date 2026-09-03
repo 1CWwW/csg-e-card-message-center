@@ -82,7 +82,8 @@ public class MessageStatisticsController {
 
     @GetMapping("/time")
     @Operation(summary = "按时间统计消息发送量",
-            description = COMMON_DESCRIPTION + "TIME维度支持DAY、WEEK、MONTH，缺失时间段由服务端补齐。")
+            description = COMMON_DESCRIPTION + "支持按字符串templateIds数组限定模板；"
+                    + "TIME维度支持DAY、WEEK、MONTH，缺失时间段由服务端补齐。")
     public CommonResult<StatisticsTimeVO> time(
             @ParameterObject @Valid MessageStatisticsTimeQueryDTO query) {
         return CommonResult.success(messageStatisticsService.time(query));

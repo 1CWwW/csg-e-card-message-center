@@ -52,7 +52,7 @@ public class MessageRecordFilterDTO {
             allowableValues = {"SYNC", "ASYNC"})
     private MessageCallType callType;
 
-    @Schema(description = "用户ID，精确匹配；用户姓名尚未接入员工中心")
+    @Schema(description = "接收人关键词，模糊匹配推送时保存的用户姓名、用户ID及姓名与用户ID组合")
     private String userId;
 
     @Schema(description = "用户单位ID，精确匹配；单位名称尚未接入员工中心")

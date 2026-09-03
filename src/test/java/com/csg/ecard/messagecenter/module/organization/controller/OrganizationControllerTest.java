@@ -2,7 +2,6 @@ package com.csg.ecard.messagecenter.module.organization.controller;
 
 import com.csg.ecard.messagecenter.module.organization.service.OrganizationService;
 import com.csg.ecard.messagecenter.module.organization.vo.OrganizationLazyNodeVO;
-import com.csg.ecard.messagecenter.module.organization.vo.OrganizationResolvedVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -44,21 +43,25 @@ class OrganizationControllerTest {
                 .andExpect(jsonPath("$.result[0].orgId").value("100000000000000001"))
                 .andExpect(jsonPath("$.result[0].state").value(1))
                 .andExpect(jsonPath("$.result[0].hasChildren").value(true))
-                .andExpect(jsonPath("$.result[0].children").doesNotExist());
+                .andExpect(jsonPath("$.result[0].children").isArray())
+                .andExpect(jsonPath("$.result[0].children").isEmpty());
     }
 
     @Test
-    void shouldExposeBatchResolveEndpoint() throws Exception {
-        OrganizationResolvedVO resolved = new OrganizationResolvedVO();
+    void shouldExposeBatchResolveEndpointWithFlatNodeContract() throws Exception {
+        OrganizationLazyNodeVO resolved = new OrganizationLazyNodeVO();
         resolved.setOrgId("1001");
-        resolved.setAncestors(List.of());
+        resolved.setHasChildren(false);
         when(organizationService.resolve(any())).thenReturn(List.of(resolved));
 
         mockMvc.perform(post("/api/msg/organization/tree/resolve")
                         .contentType("application/json")
                         .content("{\"orgIds\":[\"1001\",\"1002\"]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result[0].orgId").value("1001"));
+                .andExpect(jsonPath("$.result[0].orgId").value("1001"))
+                .andExpect(jsonPath("$.result[0].hasChildren").value(false))
+                .andExpect(jsonPath("$.result[0].children").isEmpty())
+                .andExpect(jsonPath("$.result[0].ancestors").doesNotExist());
     }
 
     @Test

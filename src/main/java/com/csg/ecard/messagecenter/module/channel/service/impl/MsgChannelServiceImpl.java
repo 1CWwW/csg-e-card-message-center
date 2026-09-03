@@ -46,6 +46,8 @@ public class MsgChannelServiceImpl implements MsgChannelService {
 
     private static final String CHANNEL_NOT_FOUND_MESSAGE = "渠道不存在";
     private static final String CHANNEL_NAME_DUPLICATE_MESSAGE = "渠道名称已存在";
+    private static final int ELINK_PRIORITY_MAX = 99_999;
+    private static final String ELINK_PRIORITY_MAX_MESSAGE = "eLink应用消息优先级最多输入5位数字";
     private static final String SORT_FIELD_PRIORITY = "priority";
     private static final String SORT_ORDER_ASC = "ASC";
     private static final String SORT_ORDER_DESC = "DESC";
@@ -102,7 +104,7 @@ public class MsgChannelServiceImpl implements MsgChannelService {
     public MsgChannelVO create(ChannelCreateDTO request) {
         validateChannelName(request.getChannelName());
         ChannelType channelType = validateChannelType(request.getChannelType());
-        validatePriority(request.getPriority());
+        validatePriority(request.getPriority(), channelType);
         Integer status = resolveCreateStatus(request.getStatus());
         List<String> unitIds = normalizeUnitIds(request.getUnitIds());
         ensureChannelNameUnique(request.getChannelName(), null);
@@ -123,12 +125,12 @@ public class MsgChannelServiceImpl implements MsgChannelService {
     @Transactional(rollbackFor = Exception.class)
     public MsgChannelVO update(Long id, ChannelUpdateDTO request) {
         MsgChannel existed = requireChannel(id);
+        ChannelType channelType = ChannelType.fromCode(existed.getChannelType());
         validateChannelName(request.getChannelName());
-        validatePriority(request.getPriority());
+        validatePriority(request.getPriority(), channelType);
         validateStatus(request.getStatus());
         List<String> unitIds = normalizeUnitIds(request.getUnitIds());
         ensureChannelNameUnique(request.getChannelName(), id);
-        ChannelType channelType = ChannelType.fromCode(existed.getChannelType());
         String typeConfig = serializeTypeConfig(channelType, request.getTypeConfig());
 
         MsgChannel channel = new MsgChannel();
@@ -224,9 +226,12 @@ public class MsgChannelServiceImpl implements MsgChannelService {
         }
     }
 
-    private void validatePriority(Integer priority) {
+    private void validatePriority(Integer priority, ChannelType channelType) {
         if (priority == null || priority < 1) {
             throw new BizException(ErrorCode.PARAM_ERROR, "优先级必须为正整数");
+        }
+        if (channelType == ChannelType.ELINK && priority > ELINK_PRIORITY_MAX) {
+            throw new BizException(ErrorCode.PARAM_ERROR, ELINK_PRIORITY_MAX_MESSAGE);
         }
     }
 

@@ -25,6 +25,12 @@ public class TemplateCopyDTO {
     @Schema(type = "string")
     private Long sceneId;
 
+    @NotBlank(message = "渠道类型不能为空")
+    @Schema(description = "目标渠道类型",
+            allowableValues = {"SMS", "EMAIL", "ELINK", "IN_APP"},
+            requiredMode = Schema.RequiredMode.REQUIRED)
+    private String channelType;
+
     @NotNull(message = "copyContent不能为空")
     private Boolean copyContent;
 

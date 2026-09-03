@@ -23,6 +23,7 @@ import com.csg.ecard.messagecenter.module.template.vo.TemplateReferenceVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateToolboxVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
@@ -66,7 +67,7 @@ public class MsgTemplateController {
     }
 
     @GetMapping("/list")
-    @Operation(summary = "模板分页查询")
+    @Operation(summary = "模板分页查询", description = "按更新时间倒序排列，最近更新的模板优先")
     public CommonResult<PageResult<TemplateListVO>> list(@ParameterObject @Valid TemplatePageQueryDTO query) {
         return CommonResult.success(msgTemplateService.page(query));
     }
@@ -79,7 +80,8 @@ public class MsgTemplateController {
      */
     @GetMapping("/filter-options")
     @Operation(summary = "模板管理筛选项查询",
-            description = "场景下拉框首次展开时调用；type当前仅支持scene")
+            description = "场景下拉框首次展开时调用；type=scene时返回字符串场景ID、场景编码、场景名称及状态，"
+                    + "label格式为“sceneCode - sceneName”；type当前仅支持scene")
     public CommonResult<List<TemplateFilterOptionVO>> filterOptions(
             @Parameter(description = "筛选项类型，当前仅支持scene", required = true)
             @RequestParam
@@ -120,8 +122,12 @@ public class MsgTemplateController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "删除模板")
-    public CommonResult<Void> delete(@PathVariable Long id) {
+    @Operation(summary = "删除模板",
+            description = "删除模板及其适用单位关联，不删除历史消息发送记录")
+    public CommonResult<Void> delete(
+            @Parameter(description = "模板ID，按字符串传递", required = true,
+                    schema = @Schema(type = "string"))
+            @PathVariable Long id) {
         msgTemplateService.delete(id);
         return CommonResult.success();
     }

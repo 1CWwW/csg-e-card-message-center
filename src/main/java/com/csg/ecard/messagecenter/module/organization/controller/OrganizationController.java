@@ -5,7 +5,6 @@ import com.csg.ecard.messagecenter.module.organization.dto.OrganizationResolveDT
 import com.csg.ecard.messagecenter.module.organization.service.OrganizationService;
 import com.csg.ecard.messagecenter.module.organization.vo.OrganizationLazyNodeVO;
 import com.csg.ecard.messagecenter.module.organization.vo.OrganizationNodeVO;
-import com.csg.ecard.messagecenter.module.organization.vo.OrganizationResolvedVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -55,14 +54,14 @@ public class OrganizationController {
     }
 
     /**
-     * 批量解析组织及祖先路径，用于编辑回显。
+     * 批量解析组织，用于编辑回显。
      *
      * @param request 组织ID列表
-     * @return 组织及祖先路径
+     * @return 扁平组织节点
      */
     @PostMapping("/tree/resolve")
-    @Operation(summary = "批量解析组织及祖先路径")
-    public CommonResult<List<OrganizationResolvedVO>> resolve(@Valid @RequestBody OrganizationResolveDTO request) {
+    @Operation(summary = "批量解析已选组织")
+    public CommonResult<List<OrganizationLazyNodeVO>> resolve(@Valid @RequestBody OrganizationResolveDTO request) {
         return CommonResult.success(organizationService.resolve(request));
     }
 
@@ -70,11 +69,11 @@ public class OrganizationController {
      * 按组织名称或编码搜索全部可见组织。
      *
      * @param keyword 搜索关键词
-     * @return 匹配组织及祖先路径
+     * @return 匹配的扁平组织节点
      */
     @GetMapping("/search")
     @Operation(summary = "搜索组织")
-    public CommonResult<List<OrganizationResolvedVO>> search(@RequestParam(required = false) String keyword) {
+    public CommonResult<List<OrganizationLazyNodeVO>> search(@RequestParam(required = false) String keyword) {
         return CommonResult.success(organizationService.search(keyword));
     }
 }

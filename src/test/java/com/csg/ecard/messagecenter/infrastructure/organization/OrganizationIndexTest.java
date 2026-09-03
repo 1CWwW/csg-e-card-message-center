@@ -23,7 +23,7 @@ class OrganizationIndexTest {
     }
 
     @Test
-    void shouldSearchByCodeWithinScopeAndReturnRootFirstAncestors() {
+    void shouldSearchByNameOrCodeWithinScopeAndReturnRootFirstAncestors() {
         OrganizationNode root = node("100", "根", null, "ROOT", 1);
         OrganizationNode child = node("101", "广东电网", "100", "GD001", 1);
         OrganizationNode leaf = node("102", "广州供电局", "101", "GZ001", 1);
@@ -37,7 +37,38 @@ class OrganizationIndexTest {
             assertThat(path.ancestors()).extracting(OrganizationNode::getOrgId)
                     .containsExactly("100", "101");
         });
+        assertThat(index.search("广州", 50, "101")).singleElement()
+                .extracting(path -> path.node().getOrgId())
+                .isEqualTo("102");
         assertThat(index.search("GX", 50, "101")).isEmpty();
+    }
+
+    @Test
+    void shouldHideInactiveNodesAndRespectSearchLimit() {
+        OrganizationNode activeOne = node("101", "南网一", null, "CSG001", 1);
+        OrganizationNode activeTwo = node("102", "南网二", null, "CSG002", 2);
+        OrganizationNode disabled = node("103", "南网三", null, "CSG003", 3);
+        disabled.setState(0);
+        OrganizationNode cancelled = node("104", "南网四", null, "CSG004", 4);
+        cancelled.setState(2);
+        OrganizationIndex index = new OrganizationIndex(List.of(activeOne, activeTwo, disabled, cancelled));
+
+        assertThat(index.children(null)).extracting(OrganizationNode::getOrgId)
+                .containsExactly("101", "102");
+        assertThat(index.search("南网", 1, null)).singleElement()
+                .extracting(path -> path.node().getOrgId())
+                .isEqualTo("101");
+    }
+
+    @Test
+    void shouldStopWhenOrganizationRelationshipContainsCycle() {
+        OrganizationIndex index = new OrganizationIndex(List.of(
+                node("101", "循环一", "102", "CYCLE1", 1),
+                node("102", "循环二", "101", "CYCLE2", 2)));
+
+        assertThat(index.resolve(List.of("101"))).singleElement().satisfies(path ->
+                assertThat(path.ancestors()).extracting(OrganizationNode::getOrgId).containsExactly("102"));
+        assertThat(index.isWithinScope("101", "missing")).isFalse();
     }
 
     private OrganizationNode node(String orgId,

@@ -22,7 +22,8 @@ public class TemplateCreateDTO {
     private String templateName;
 
     @NotNull(message = "场景ID不能为空")
-    @Schema(type = "string")
+    @Schema(description = "场景ID，传递场景筛选项的value，不传递sceneCode",
+            type = "string", example = "2085629226374467586")
     private Long sceneId;
 
     @NotBlank(message = "渠道类型不能为空")

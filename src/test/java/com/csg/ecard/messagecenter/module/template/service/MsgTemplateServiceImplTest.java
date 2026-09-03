@@ -1,10 +1,13 @@
 package com.csg.ecard.messagecenter.module.template.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.csg.ecard.messagecenter.common.enums.ChannelType;
 import com.csg.ecard.messagecenter.common.enums.CommonStatus;
 import com.csg.ecard.messagecenter.common.enums.ErrorCode;
 import com.csg.ecard.messagecenter.common.enums.ParamType;
 import com.csg.ecard.messagecenter.common.exception.BizException;
+import com.csg.ecard.messagecenter.module.scene.entity.MsgScene;
 import com.csg.ecard.messagecenter.module.scene.entity.MsgSceneParam;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneMapper;
 import com.csg.ecard.messagecenter.module.scene.mapper.MsgSceneParamMapper;
@@ -16,16 +19,21 @@ import com.csg.ecard.messagecenter.module.template.blockly.BlocklyRenderer;
 import com.csg.ecard.messagecenter.module.template.blockly.BlocklyValidationMode;
 import com.csg.ecard.messagecenter.module.template.blockly.BlocklyValidationResult;
 import com.csg.ecard.messagecenter.module.template.blockly.SceneParamValueValidator;
+import com.csg.ecard.messagecenter.module.template.dto.TemplateContentSaveDTO;
+import com.csg.ecard.messagecenter.module.template.dto.TemplateCopyDTO;
+import com.csg.ecard.messagecenter.module.template.dto.TemplateCreateDTO;
 import com.csg.ecard.messagecenter.module.template.dto.TemplateUpdateDTO;
 import com.csg.ecard.messagecenter.module.template.entity.MsgTemplate;
 import com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateMapper;
 import com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateUnitMapper;
 import com.csg.ecard.messagecenter.module.template.mapper.TemplateQueryRow;
 import com.csg.ecard.messagecenter.module.template.service.impl.MsgTemplateServiceImpl;
+import com.csg.ecard.messagecenter.module.template.vo.TemplateFilterOptionVO;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -107,31 +115,45 @@ class MsgTemplateServiceImplTest {
     }
 
     @Test
-    void shouldRejectChannelTypeChangeWhenEditingTemplate() {
+    void shouldAllowChannelTypeChangeWhenEditingTemplate() {
         TemplateUpdateDTO request = new TemplateUpdateDTO();
         request.setTemplateName("template");
-        request.setChannelType(ChannelType.EMAIL.getCode());
+        request.setSceneId(1L);
+        request.setChannelType(ChannelType.ELINK.getCode());
         request.setStatus(CommonStatus.DISABLE.getCode());
 
+        TemplateQueryRow saved = new TemplateQueryRow();
+        saved.setId(10L);
+        saved.setTemplateName("template");
+        saved.setSceneId(1L);
+        saved.setChannelType(ChannelType.ELINK.getCode());
+        saved.setStatus(CommonStatus.DISABLE.getCode());
+
         when(msgTemplateMapper.selectById(10L)).thenReturn(existed);
+        when(msgSceneMapper.selectById(1L)).thenReturn(enabledScene(1L));
+        when(msgTemplateMapper.updateById(any(MsgTemplate.class))).thenReturn(1);
+        when(msgTemplateMapper.selectTemplateDetail(10L)).thenReturn(saved);
+        when(msgTemplateUnitMapper.selectUnitIdsByTemplateId(10L)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> msgTemplateService.update(10L, request))
-                .isInstanceOf(BizException.class)
-                .hasMessage("编辑模板时不允许修改渠道类型")
-                .extracting("code")
-                .isEqualTo(ErrorCode.PARAM_ERROR.getCode());
+        var result = msgTemplateService.update(10L, request);
 
-        verify(msgTemplateMapper, never()).updateById(any(MsgTemplate.class));
+        ArgumentCaptor<MsgTemplate> updateCaptor = ArgumentCaptor.forClass(MsgTemplate.class);
+        verify(msgTemplateMapper).updateById(updateCaptor.capture());
+        assertThat(updateCaptor.getValue().getChannelType()).isEqualTo(ChannelType.ELINK.getCode());
+        assertThat(result.getChannelType()).isEqualTo(ChannelType.ELINK.getCode());
+        assertThat(result.getChannelTypeDesc()).isEqualTo(ChannelType.ELINK.getDesc());
     }
 
     @Test
     void shouldRejectDuplicateTemplateNameInSameSceneWhenUpdating() {
         TemplateUpdateDTO request = new TemplateUpdateDTO();
+        request.setSceneId(1L);
         request.setChannelType(ChannelType.SMS.getCode());
         request.setTemplateName("同场景模板");
         request.setStatus(CommonStatus.DISABLE.getCode());
 
         when(msgTemplateMapper.selectById(10L)).thenReturn(existed);
+        when(msgSceneMapper.selectById(1L)).thenReturn(enabledScene(1L));
         when(msgTemplateMapper.selectCount(any())).thenReturn(1L);
 
         assertThatThrownBy(() -> msgTemplateService.update(10L, request))
@@ -142,6 +164,314 @@ class MsgTemplateServiceImplTest {
 
         verify(msgTemplateMapper, never()).updateById(any(MsgTemplate.class));
         verify(msgTemplateUnitMapper, never()).deleteByTemplateId(any());
+    }
+
+    @Test
+    void shouldReturnSceneFilterOptionWithCodeNameStatusAndStringId() {
+        MsgScene scene = new MsgScene();
+        scene.setId(2085629226374467586L);
+        scene.setSceneCode("A_01");
+        scene.setSceneName("qqq");
+        scene.setStatus(CommonStatus.ENABLE.getCode());
+        when(msgSceneMapper.selectTemplateFilterOptions()).thenReturn(List.of(scene));
+
+        List<TemplateFilterOptionVO> result = msgTemplateService.sceneFilterOptions();
+
+        assertThat(result).singleElement().satisfies(option -> {
+            assertThat(option.getValue()).isEqualTo("2085629226374467586");
+            assertThat(option.getLabel()).isEqualTo("A_01 - qqq");
+            assertThat(option.getSceneCode()).isEqualTo("A_01");
+            assertThat(option.getSceneName()).isEqualTo("qqq");
+            assertThat(option.getStatus()).isEqualTo(CommonStatus.ENABLE.getCode());
+            assertThat(objectMapper.valueToTree(option).get("value").isTextual()).isTrue();
+        });
+    }
+
+    @Test
+    void shouldRejectMissingSceneWhenCreatingTemplate() {
+        TemplateCreateDTO request = templateCreateRequest(1L);
+        when(msgSceneMapper.selectById(1L)).thenReturn(null);
+
+        assertThatThrownBy(() -> msgTemplateService.create(request))
+                .isInstanceOf(BizException.class)
+                .hasMessage("场景不存在")
+                .extracting("code")
+                .isEqualTo(ErrorCode.DATA_NOT_FOUND.getCode());
+
+        verify(msgTemplateMapper, never()).insert(any(MsgTemplate.class));
+    }
+
+    @Test
+    void shouldRejectDisabledSceneWhenCreatingTemplate() {
+        TemplateCreateDTO request = templateCreateRequest(1L);
+        MsgScene scene = new MsgScene();
+        scene.setId(1L);
+        scene.setStatus(CommonStatus.DISABLE.getCode());
+        when(msgSceneMapper.selectById(1L)).thenReturn(scene);
+
+        assertThatThrownBy(() -> msgTemplateService.create(request))
+                .isInstanceOf(BizException.class)
+                .hasMessage("只能选择启用场景")
+                .extracting("code")
+                .isEqualTo(ErrorCode.STATUS_NOT_ALLOWED.getCode());
+
+        verify(msgTemplateMapper, never()).insert(any(MsgTemplate.class));
+    }
+
+    @Test
+    void shouldRebindBothSceneParamNodeTypesAcrossScenesWithStringIds() {
+        MsgSceneParam sourceBalance = sceneParam(11L, 1L, "balance", "账户余额", ParamType.NUMBER);
+        MsgSceneParam sourceName = sceneParam(12L, 1L, "customerName", "客户名称", ParamType.STRING);
+        MsgSceneParam targetBalance = sceneParam(9007199254740993L, 2L,
+                "balance", "目标账户余额", ParamType.NUMBER);
+        MsgSceneParam targetName = sceneParam(9007199254740994L, 2L,
+                "customerName", "目标客户名称", ParamType.STRING);
+        ObjectNode balanceBlock = sceneParamBlock(BlocklyBlockTypes.SCENE_PARAM_VALUE,
+                "balance-node", "1", "11", "balance", "账户余额", ParamType.NUMBER);
+        ObjectNode nameBlock = sceneParamBlock(BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF,
+                "name-node", "1", "12", "customerName", "客户名称", ParamType.STRING);
+        BlocklyValidationResult sourceValidation = actualValidator.validateWorkspace(
+                1,
+                linkedWorkspace(balanceBlock, nameBlock),
+                1L,
+                Map.of(11L, sourceBalance, 12L, sourceName),
+                BlocklyValidationMode.DRAFT);
+
+        BlocklyValidationResult rebound = actualValidator.rebindSceneParams(
+                sourceValidation.getBlocklyJson(),
+                Map.of(11L, sourceBalance, 12L, sourceName),
+                2L,
+                Map.of(targetBalance.getId(), targetBalance, targetName.getId(), targetName));
+
+        assertThat(rebound.isValid()).isTrue();
+        List<JsonNode> extraStates = rebound.getBlocklyJson().findValues("extraState");
+        assertThat(extraStates).hasSize(2);
+        assertReboundParam(extraStates.get(0), "2", "9007199254740993",
+                "balance", "目标账户余额", ParamType.NUMBER);
+        assertReboundParam(extraStates.get(1), "2", "9007199254740994",
+                "customerName", "目标客户名称", ParamType.STRING);
+    }
+
+    @Test
+    void shouldRejectCrossSceneCopyWhenTargetParamIsMissing() {
+        MsgSceneParam sourceParam = sceneParam(11L, 1L, "balance", "账户余额", ParamType.NUMBER);
+        ObjectNode block = sceneParamBlock(BlocklyBlockTypes.SCENE_PARAM_VALUE,
+                "balance-node", "1", "11", "balance", "账户余额", ParamType.NUMBER);
+        BlocklyValidationResult sourceValidation = actualValidator.validateWorkspace(
+                1, linkedWorkspace(block), 1L, Map.of(11L, sourceParam), BlocklyValidationMode.DRAFT);
+
+        assertThatThrownBy(() -> actualValidator.rebindSceneParams(
+                sourceValidation.getBlocklyJson(), Map.of(11L, sourceParam), 2L, Map.of()))
+                .isInstanceOf(BizException.class)
+                .hasMessage("参数‘账户余额’在目标场景中不存在");
+    }
+
+    @Test
+    void shouldRejectCrossSceneCopyWhenTargetParamTypeDiffers() {
+        MsgSceneParam sourceParam = sceneParam(11L, 1L, "amount", "消费金额", ParamType.NUMBER);
+        MsgSceneParam targetParam = sceneParam(21L, 2L, "amount", "消费金额", ParamType.STRING);
+        ObjectNode block = sceneParamBlock(BlocklyBlockTypes.SCENE_PARAM_VALUE,
+                "amount-node", "1", "11", "amount", "消费金额", ParamType.NUMBER);
+        BlocklyValidationResult sourceValidation = actualValidator.validateWorkspace(
+                1, linkedWorkspace(block), 1L, Map.of(11L, sourceParam), BlocklyValidationMode.DRAFT);
+
+        assertThatThrownBy(() -> actualValidator.rebindSceneParams(
+                sourceValidation.getBlocklyJson(), Map.of(11L, sourceParam),
+                2L, Map.of(21L, targetParam)))
+                .isInstanceOf(BizException.class)
+                .hasMessage("参数‘消费金额’类型不一致：源场景为 NUMBER，目标场景为 STRING");
+    }
+
+    @Test
+    void shouldCollectReadableErrorsForEachInvalidHistoricalParam() {
+        ObjectNode balanceBlock = sceneParamBlock(BlocklyBlockTypes.SCENE_PARAM_VALUE,
+                "balance-node", "99", "11", "balance", "账户余额", ParamType.NUMBER);
+        ObjectNode amountBlock = sceneParamBlock(BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF,
+                "amount-node", "99", "12", "amount", "消费金额", ParamType.NUMBER);
+
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(
+                1, linkedWorkspace(balanceBlock, amountBlock), 2L, Map.of(), BlocklyValidationMode.DRAFT);
+
+        assertThat(validation.isValid()).isFalse();
+        assertThat(validation.getErrors()).containsExactly(
+                "参数‘账户余额’引用场景与当前模板场景不一致",
+                "参数‘消费金额’引用场景与当前模板场景不一致");
+        assertThat(validation.getErrors()).allSatisfy(error -> {
+            assertThat(error).doesNotContain(BlocklyBlockTypes.SCENE_PARAM_VALUE);
+            assertThat(error).doesNotContain(BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF);
+        });
+    }
+
+    @Test
+    void shouldKeepOriginalParamBindingWhenTargetIdAndTypeDiffer() {
+        initializeTemplateTableInfo();
+        MsgSceneParam sourceParam = sceneParam(11L, 1L, "balance", "账户余额", ParamType.NUMBER);
+        MsgSceneParam targetParam = sceneParam(9007199254740993L, 2L,
+                "balance", "目标账户余额", ParamType.STRING);
+        MsgTemplate source = sourceTemplate(1L, storedContent(1L, Map.of(11L, sourceParam),
+                sceneParamBlock(BlocklyBlockTypes.SCENE_PARAM_VALUE,
+                        "balance-node", "1", "11", "balance", "账户余额", ParamType.NUMBER)));
+        when(msgTemplateMapper.selectById(10L)).thenReturn(source);
+        when(msgSceneMapper.selectById(2L)).thenReturn(enabledScene(2L));
+        when(msgTemplateMapper.selectCount(any())).thenReturn(0L);
+        when(msgSceneParamMapper.selectList(any()))
+                .thenReturn(List.of(sourceParam), List.of(targetParam));
+        when(msgTemplateMapper.insert(any(MsgTemplate.class))).thenAnswer(invocation -> {
+            MsgTemplate copied = invocation.getArgument(0);
+            copied.setId(20L);
+            return 1;
+        });
+
+        var result = actualTemplateService().copy(10L, copyRequest(2L, true));
+
+        assertThat(result.getNewTemplateId()).isEqualTo(20L);
+        assertThat(result.getHasContent()).isFalse();
+        ArgumentCaptor<MsgTemplate> captor = ArgumentCaptor.forClass(MsgTemplate.class);
+        verify(msgTemplateMapper).insert(captor.capture());
+        MsgTemplate copied = captor.getValue();
+        BlocklyValidationResult validation = actualValidator.validateStored(
+                copied.getBlocklyJson(), 2L, Map.of(targetParam.getId(), targetParam),
+                BlocklyValidationMode.DRAFT);
+        JsonNode extraState = validation.getBlocklyJson().findValue("extraState");
+        assertThat(validation.isValid()).isFalse();
+        assertThat(validation.getErrors()).containsExactly("参数‘账户余额’引用场景与当前模板场景不一致");
+        assertReboundParam(extraState, "1", "11",
+                "balance", "账户余额", ParamType.NUMBER);
+    }
+
+    @Test
+    void shouldKeepContentBindingWhenCopyingWithinSameScene() {
+        initializeTemplateTableInfo();
+        MsgSceneParam sourceParam = sceneParam(11L, 1L, "balance", "账户余额", ParamType.NUMBER);
+        MsgTemplate source = sourceTemplate(1L, storedContent(1L, Map.of(11L, sourceParam),
+                sceneParamBlock(BlocklyBlockTypes.SCENE_PARAM_VALUE,
+                        "balance-node", "1", "11", "balance", "账户余额", ParamType.NUMBER)));
+        when(msgTemplateMapper.selectById(10L)).thenReturn(source);
+        when(msgSceneMapper.selectById(1L)).thenReturn(enabledScene(1L));
+        when(msgTemplateMapper.selectCount(any())).thenReturn(0L);
+        when(msgSceneParamMapper.selectList(any())).thenReturn(List.of(sourceParam));
+        when(msgTemplateMapper.insert(any(MsgTemplate.class))).thenAnswer(invocation -> {
+            MsgTemplate copied = invocation.getArgument(0);
+            copied.setId(20L);
+            return 1;
+        });
+
+        actualTemplateService().copy(10L, copyRequest(1L, true));
+
+        ArgumentCaptor<MsgTemplate> captor = ArgumentCaptor.forClass(MsgTemplate.class);
+        verify(msgTemplateMapper).insert(captor.capture());
+        JsonNode extraState = actualValidator.readNullable(captor.getValue().getBlocklyJson())
+                .findValue("extraState");
+        assertReboundParam(extraState, "1", "11", "balance", "账户余额", ParamType.NUMBER);
+        verify(msgSceneParamMapper, org.mockito.Mockito.times(1)).selectList(any());
+    }
+
+    @Test
+    void shouldKeepCopyContentFalseBehaviorUnchanged() {
+        initializeTemplateTableInfo();
+        MsgTemplate source = sourceTemplate(1L, "invalid content is intentionally ignored");
+        when(msgTemplateMapper.selectById(10L)).thenReturn(source);
+        when(msgSceneMapper.selectById(2L)).thenReturn(enabledScene(2L));
+        when(msgTemplateMapper.selectCount(any())).thenReturn(0L);
+        when(msgTemplateMapper.insert(any(MsgTemplate.class))).thenAnswer(invocation -> {
+            MsgTemplate copied = invocation.getArgument(0);
+            copied.setId(20L);
+            return 1;
+        });
+
+        var result = actualTemplateService().copy(10L, copyRequest(2L, false));
+
+        assertThat(result.getHasContent()).isFalse();
+        ArgumentCaptor<MsgTemplate> captor = ArgumentCaptor.forClass(MsgTemplate.class);
+        verify(msgTemplateMapper).insert(captor.capture());
+        assertThat(captor.getValue().getBlocklyJson()).isNull();
+        verify(msgSceneParamMapper, never()).selectList(any());
+    }
+
+    @Test
+    void shouldCopyConflictingDraftAndRejectEnableUntilConflictIsResolved() {
+        initializeTemplateTableInfo();
+        MsgSceneParam sourceParam = sceneParam(11L, 1L, "param2", "2", ParamType.NUMBER);
+        MsgTemplate source = sourceTemplate(1L, storedContent(1L, Map.of(11L, sourceParam),
+                sceneParamBlock(BlocklyBlockTypes.SCENE_PARAM_VALUE,
+                        "param-2-node", "1", "11", "param2", "2", ParamType.NUMBER)));
+        MsgTemplate[] copiedHolder = new MsgTemplate[1];
+        when(msgTemplateMapper.selectById(10L)).thenReturn(source);
+        when(msgTemplateMapper.selectById(20L)).thenAnswer(invocation -> copiedHolder[0]);
+        when(msgSceneMapper.selectById(2L)).thenReturn(enabledScene(2L));
+        when(msgTemplateMapper.selectCount(any())).thenReturn(0L);
+        when(msgSceneParamMapper.selectList(any()))
+                .thenReturn(List.of(sourceParam), List.of(), List.of(), List.of());
+        when(msgTemplateMapper.insert(any(MsgTemplate.class))).thenAnswer(invocation -> {
+            MsgTemplate copied = invocation.getArgument(0);
+            copied.setId(20L);
+            copiedHolder[0] = copied;
+            return 1;
+        });
+        when(msgTemplateMapper.selectTemplateDetail(20L)).thenAnswer(invocation -> {
+            MsgTemplate copied = copiedHolder[0];
+            TemplateQueryRow row = new TemplateQueryRow();
+            row.setId(copied.getId());
+            row.setTemplateName(copied.getTemplateName());
+            row.setSceneId(copied.getSceneId());
+            row.setChannelType(copied.getChannelType());
+            row.setBlocklyJson(copied.getBlocklyJson());
+            row.setStatus(copied.getStatus());
+            row.setUnitCount(0L);
+            return row;
+        });
+        when(msgTemplateUnitMapper.selectUnitIdsByTemplateId(20L)).thenReturn(List.of());
+
+        var service = actualTemplateService();
+        var result = service.copy(10L, copyRequest(2L, true));
+        var detail = service.detail(20L);
+
+        assertThat(result.getNewTemplateId()).isEqualTo(20L);
+        assertThat(result.getHasContent()).isFalse();
+        assertThat(detail.getBlocklyJson()).isNotNull();
+        assertThat(detail.getHasContent()).isFalse();
+        assertThat(detail.getContentStatusDesc()).isEqualTo("未编辑");
+        assertThat(detail.getStatus()).isEqualTo(CommonStatus.DISABLE.getCode());
+        JsonNode extraState = detail.getBlocklyJson().findValue("extraState");
+        assertReboundParam(extraState, "1", "11", "param2", "2", ParamType.NUMBER);
+
+        assertThatThrownBy(() -> service.toggle(20L))
+                .isInstanceOf(BizException.class)
+                .hasMessage("参数‘2’引用场景与当前模板场景不一致");
+
+        verify(msgTemplateMapper).insert(any(MsgTemplate.class));
+        verify(msgTemplateMapper, never()).updateById(any(MsgTemplate.class));
+    }
+
+    @Test
+    void shouldReturnMultipleReadableParamErrorsWhenSavingHistoricalContent() {
+        initializeTemplateTableInfo();
+        MsgTemplate template = sourceTemplate(2L, null);
+        when(msgTemplateMapper.selectById(10L)).thenReturn(template);
+        when(msgSceneMapper.selectById(2L)).thenReturn(enabledScene(2L));
+        when(msgSceneParamMapper.selectList(any())).thenReturn(List.of());
+        when(msgTemplateMapper.updateById(any(MsgTemplate.class))).thenAnswer(invocation -> {
+            MsgTemplate update = invocation.getArgument(0);
+            template.setBlocklyJson(update.getBlocklyJson());
+            return 1;
+        });
+        ObjectNode balanceBlock = sceneParamBlock(BlocklyBlockTypes.SCENE_PARAM_VALUE,
+                "balance-node", "99", "11", "balance", "账户余额", ParamType.NUMBER);
+        ObjectNode amountBlock = sceneParamBlock(BlocklyBlockTypes.LEGACY_SCENE_PARAM_REF,
+                "amount-node", "99", "12", "amount", "消费金额", ParamType.NUMBER);
+        TemplateContentSaveDTO request = new TemplateContentSaveDTO();
+        request.setSchemaVersion(1);
+        request.setWorkspace(linkedWorkspace(balanceBlock, amountBlock));
+
+        var result = actualTemplateService().saveContent(10L, request);
+
+        assertThat(result.getValid()).isFalse();
+        assertThat(result.getErrors()).containsExactly(
+                "参数‘账户余额’引用场景与当前模板场景不一致",
+                "参数‘消费金额’引用场景与当前模板场景不一致");
+        assertThat(result.getErrors()).allSatisfy(error ->
+                assertThat(error).doesNotContain("scene_param_"));
+        verify(msgTemplateMapper).updateById(any(MsgTemplate.class));
     }
 
     @Test
@@ -1725,11 +2055,115 @@ class MsgTemplateServiceImplTest {
         return block;
     }
 
+    private ObjectNode sceneParamBlock(String blockType,
+                                       String blockId,
+                                       String sceneId,
+                                       String paramId,
+                                       String paramName,
+                                       String paramLabel,
+                                       ParamType paramType) {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("id", blockId);
+        block.put("type", blockType);
+        ObjectNode extraState = block.putObject("extraState");
+        extraState.put("sceneId", sceneId);
+        extraState.put("paramId", paramId);
+        extraState.put("paramName", paramName);
+        extraState.put("paramLabel", paramLabel);
+        extraState.put("paramType", paramType.getCode());
+        return block;
+    }
+
+    private void assertReboundParam(JsonNode extraState,
+                                    String sceneId,
+                                    String paramId,
+                                    String paramName,
+                                    String paramLabel,
+                                    ParamType paramType) {
+        assertThat(extraState.path("sceneId").isTextual()).isTrue();
+        assertThat(extraState.path("paramId").isTextual()).isTrue();
+        assertThat(extraState.path("sceneId").asText()).isEqualTo(sceneId);
+        assertThat(extraState.path("paramId").asText()).isEqualTo(paramId);
+        assertThat(extraState.path("paramName").asText()).isEqualTo(paramName);
+        assertThat(extraState.path("paramLabel").asText()).isEqualTo(paramLabel);
+        assertThat(extraState.path("paramType").asText()).isEqualTo(paramType.getCode());
+    }
+
+    private TemplateCreateDTO templateCreateRequest(Long sceneId) {
+        TemplateCreateDTO request = new TemplateCreateDTO();
+        request.setTemplateName("测试模板");
+        request.setSceneId(sceneId);
+        request.setChannelType(ChannelType.SMS.getCode());
+        request.setUnitIds(List.of());
+        return request;
+    }
+
+    private MsgTemplateServiceImpl actualTemplateService() {
+        return new MsgTemplateServiceImpl(
+                msgTemplateMapper,
+                msgTemplateUnitMapper,
+                msgSceneMapper,
+                msgSceneParamMapper,
+                actualValidator,
+                blocklyRenderer);
+    }
+
+    private void initializeTemplateTableInfo() {
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+        TableInfoHelper.initTableInfo(assistant, MsgTemplate.class);
+        TableInfoHelper.initTableInfo(assistant, MsgSceneParam.class);
+    }
+
+    private MsgScene enabledScene(Long id) {
+        MsgScene scene = new MsgScene();
+        scene.setId(id);
+        scene.setStatus(CommonStatus.ENABLE.getCode());
+        return scene;
+    }
+
+    private MsgTemplate sourceTemplate(Long sceneId, String blocklyJson) {
+        MsgTemplate template = new MsgTemplate();
+        template.setId(10L);
+        template.setSceneId(sceneId);
+        template.setTemplateName("源模板");
+        template.setChannelType(ChannelType.SMS.getCode());
+        template.setBlocklyJson(blocklyJson);
+        template.setStatus(CommonStatus.DISABLE.getCode());
+        return template;
+    }
+
+    private TemplateCopyDTO copyRequest(Long sceneId, boolean copyContent) {
+        TemplateCopyDTO request = new TemplateCopyDTO();
+        request.setTemplateName("复制模板");
+        request.setSceneId(sceneId);
+        request.setChannelType(ChannelType.SMS.getCode());
+        request.setCopyContent(copyContent);
+        request.setUnitIds(List.of());
+        return request;
+    }
+
+    private String storedContent(Long sceneId,
+                                 Map<Long, MsgSceneParam> params,
+                                 ObjectNode... blocks) {
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(
+                1, linkedWorkspace(blocks), sceneId, params, BlocklyValidationMode.DRAFT);
+        return actualValidator.write(validation.getBlocklyJson());
+    }
+
     private MsgSceneParam param(Long id, String name, ParamType type) {
+        return sceneParam(id, 1L, name, null, type);
+    }
+
+    private MsgSceneParam sceneParam(Long id,
+                                     Long sceneId,
+                                     String name,
+                                     String label,
+                                     ParamType type) {
         MsgSceneParam param = new MsgSceneParam();
         param.setId(id);
-        param.setSceneId(1L);
+        param.setSceneId(sceneId);
         param.setParamName(name);
+        param.setParamLabel(label);
         param.setParamType(type.getCode());
         param.setIsRequired(1);
         return param;

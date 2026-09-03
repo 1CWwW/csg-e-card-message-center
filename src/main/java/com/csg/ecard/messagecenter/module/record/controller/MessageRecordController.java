@@ -55,7 +55,8 @@ public class MessageRecordController {
 
     @GetMapping("/overview")
     @Operation(summary = "消息记录概览",
-            description = "按服务器当前日期和记录创建时间统计今日、昨日数量及成功率")
+            description = "按服务器当前日期统计今日、昨日数量及成功率；已发送记录按最近实际发送时间归属，"
+                    + "尚未发送且sendTime为空的记录按创建时间归属")
     public CommonResult<MessageRecordOverviewVO> overview() {
         return CommonResult.success(messageRecordService.overview());
     }
@@ -82,7 +83,9 @@ public class MessageRecordController {
 
     @GetMapping("/list")
     @Operation(summary = "消息记录分页查询",
-            description = "ID对外按字符串返回；sendTime为空表示异步消息尚未真正发送；"
+            description = "支持按字符串templateId及send_time的startTime、endTime组合筛选，total为完整筛选结果总数；"
+                    + "userId作为接收人搜索关键词，模糊匹配用户姓名、用户ID及两者组合；"
+                    + "ID对外按字符串返回；sendTime为空表示异步消息尚未真正发送；"
                     + "messageContent为模板渲染后实际提交渠道发送器的最终推送内容；"
                     + "priority为消息业务优先级HIGH、NORMAL、LOW，与渠道匹配优先级无关；"
                     + "callType仅支持SYNC、ASYNC，表示消息最初由同步或异步推送入口进入，重试和手动重发不会改变")

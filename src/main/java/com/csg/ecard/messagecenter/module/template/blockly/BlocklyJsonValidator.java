@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -79,6 +80,40 @@ public class BlocklyJsonValidator {
         } catch (JsonProcessingException ex) {
             throw new BizException(ErrorCode.PARAM_ERROR, "模板 Blockly JSON 无法解析");
         }
+    }
+
+    /**
+     * 将模板中的场景参数节点按参数名称和类型重新绑定到目标场景，并重新执行完整内容校验。
+     *
+     * @param blocklyJson  已按源场景校验的模板内容
+     * @param sourceParams 源场景参数
+     * @param targetSceneId 目标场景ID
+     * @param targetParams 目标场景参数
+     * @return 重绑定后的校验结果
+     */
+    public BlocklyValidationResult rebindSceneParams(JsonNode blocklyJson,
+                                                      Map<Long, MsgSceneParam> sourceParams,
+                                                      Long targetSceneId,
+                                                      Map<Long, MsgSceneParam> targetParams) {
+        if (blocklyJson == null || !blocklyJson.isObject()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "Blockly JSON 根节点必须为对象");
+        }
+        JsonNode rebound = blocklyJson.deepCopy();
+        Set<String> errors = new LinkedHashSet<>();
+        rebindSceneParamNodes(rebound,
+                sourceParams == null ? Collections.emptyMap() : sourceParams,
+                targetSceneId,
+                targetParams == null ? Collections.emptyMap() : targetParams,
+                errors);
+        if (!errors.isEmpty()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, String.join("；", errors));
+        }
+        BlocklyValidationResult validation = validateRoot(rebound, targetSceneId, targetParams,
+                BlocklyValidationMode.DRAFT);
+        if (!validation.isValid()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, String.join("；", validation.getErrors()));
+        }
+        return validation;
     }
 
     /**
@@ -214,10 +249,14 @@ public class BlocklyJsonValidator {
         if (mode == BlocklyValidationMode.ENABLE && !hasContent) {
             throw new BizException(ErrorCode.STATUS_NOT_ALLOWED, "模板正文不能为空");
         }
+        List<String> errors = List.copyOf(context.errors);
+        if (mode == BlocklyValidationMode.ENABLE && !errors.isEmpty()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, String.join("；", errors));
+        }
         return new BlocklyValidationResult(root.deepCopy(),
                 hasContent,
-                hasContent,
-                Collections.emptyList(),
+                hasContent && errors.isEmpty(),
+                errors,
                 Set.copyOf(context.referencedParamIds),
                 Map.copyOf(context.referencedParamCounts));
     }
@@ -626,10 +665,134 @@ public class BlocklyJsonValidator {
     private BlocklyValidationResult emptyResult(JsonNode root) {
         return new BlocklyValidationResult(root == null ? objectMapper.nullNode() : root.deepCopy(),
                 false,
-                false,
+                true,
                 Collections.emptyList(),
                 Collections.emptySet(),
                 Collections.emptyMap());
+    }
+
+    private void rebindSceneParamNodes(JsonNode node,
+                                       Map<Long, MsgSceneParam> sourceParams,
+                                       Long targetSceneId,
+                                       Map<Long, MsgSceneParam> targetParams,
+                                       Set<String> errors) {
+        if (node == null || node.isNull()) {
+            return;
+        }
+        if (node.isObject()) {
+            String blockType = text(node.get("type"));
+            if (BlocklyBlockTypes.isSceneParamType(blockType)) {
+                rebindSceneParamNode(node, sourceParams, targetSceneId, targetParams, errors);
+            }
+            Iterator<JsonNode> elements = node.elements();
+            while (elements.hasNext()) {
+                rebindSceneParamNodes(elements.next(), sourceParams, targetSceneId, targetParams, errors);
+            }
+            return;
+        }
+        if (node.isArray()) {
+            Iterator<JsonNode> elements = node.elements();
+            while (elements.hasNext()) {
+                rebindSceneParamNodes(elements.next(), sourceParams, targetSceneId, targetParams, errors);
+            }
+        }
+    }
+
+    private void rebindSceneParamNode(JsonNode block,
+                                      Map<Long, MsgSceneParam> sourceParams,
+                                      Long targetSceneId,
+                                      Map<Long, MsgSceneParam> targetParams,
+                                      Set<String> errors) {
+        JsonNode extraStateNode = block.get("extraState");
+        if (!(extraStateNode instanceof ObjectNode extraState)) {
+            errors.add("参数‘未知参数’缺少参数配置");
+            return;
+        }
+        String stateName = text(extraState.get("paramName"));
+        String stateType = text(extraState.get("paramType"));
+        MsgSceneParam sourceParam = findParamByIdText(sourceParams, text(extraState.get("paramId")));
+        if (sourceParam == null) {
+            sourceParam = findParamByNameAndType(sourceParams, stateName, stateType);
+        }
+        String sourceName = sourceParam == null ? stateName : sourceParam.getParamName();
+        String sourceType = sourceParam == null ? stateType : sourceParam.getParamType();
+        String displayName = displayParamName(extraState, sourceParam, sourceName);
+        if (!StringUtils.hasText(sourceName)) {
+            errors.add("参数‘" + displayName + "’缺少参数名称");
+            return;
+        }
+        if (!StringUtils.hasText(sourceType)) {
+            errors.add("参数‘" + displayName + "’缺少参数类型");
+            return;
+        }
+
+        MsgSceneParam targetParam = findParamByNameAndType(targetParams, sourceName, sourceType);
+        if (targetParam == null) {
+            MsgSceneParam sameNameParam = findParamByName(targetParams, sourceName);
+            if (sameNameParam == null) {
+                errors.add("参数‘" + displayName + "’在目标场景中不存在");
+            } else {
+                errors.add("参数‘" + displayName + "’类型不一致：源场景为 " + sourceType
+                        + "，目标场景为 " + sameNameParam.getParamType());
+            }
+            return;
+        }
+
+        extraState.put("sceneId", String.valueOf(targetSceneId));
+        extraState.put("paramId", String.valueOf(targetParam.getId()));
+        extraState.put("paramName", targetParam.getParamName());
+        extraState.put("paramType", targetParam.getParamType());
+        if (targetParam.getParamLabel() == null) {
+            extraState.putNull("paramLabel");
+        } else {
+            extraState.put("paramLabel", targetParam.getParamLabel());
+        }
+    }
+
+    private MsgSceneParam findParamByIdText(Map<Long, MsgSceneParam> params, String paramId) {
+        if (!StringUtils.hasText(paramId)) {
+            return null;
+        }
+        return params.values().stream()
+                .filter(param -> param.getId() != null && paramId.equals(param.getId().toString()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private MsgSceneParam findParamByNameAndType(Map<Long, MsgSceneParam> params,
+                                                 String paramName,
+                                                 String paramType) {
+        if (!StringUtils.hasText(paramName) || !StringUtils.hasText(paramType)) {
+            return null;
+        }
+        return params.values().stream()
+                .filter(param -> paramName.equals(param.getParamName())
+                        && paramType.equals(param.getParamType()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private MsgSceneParam findParamByName(Map<Long, MsgSceneParam> params, String paramName) {
+        if (!StringUtils.hasText(paramName)) {
+            return null;
+        }
+        return params.values().stream()
+                .filter(param -> paramName.equals(param.getParamName()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String displayParamName(JsonNode extraState,
+                                    MsgSceneParam param,
+                                    String fallbackName) {
+        if (param != null && StringUtils.hasText(param.getParamLabel())) {
+            return param.getParamLabel();
+        }
+        String paramLabel = text(extraState.get("paramLabel"));
+        if (StringUtils.hasText(paramLabel)) {
+            return paramLabel;
+        }
+        return StringUtils.hasText(fallbackName) ? fallbackName : "未知参数";
     }
 
     private void collectParamCounts(JsonNode node, Map<Long, Long> result) {
@@ -1094,53 +1257,70 @@ public class BlocklyJsonValidator {
     }
 
     private BlocklyValueType validateParamReference(JsonNode block, ValidationContext context) {
-        String blockType = block.path("type").asText();
         JsonNode extraState = block.get("extraState");
         if (extraState == null || !extraState.isObject()) {
-            throw new BizException(ErrorCode.PARAM_ERROR, blockType + " 缺少 extraState");
+            context.errors.add("参数‘未知参数’缺少参数配置");
+            return BlocklyValueType.STRING;
         }
-        String paramName = requiredText(extraState, "paramName", blockType);
+        String paramName = text(extraState.get("paramName"));
+        String paramLabel = text(extraState.get("paramLabel"));
+        String displayName = StringUtils.hasText(paramLabel)
+                ? paramLabel
+                : (StringUtils.hasText(paramName) ? paramName : "未知参数");
+        String declaredParamType = text(extraState.get("paramType"));
+        if (!StringUtils.hasText(paramName)) {
+            context.errors.add("参数‘" + displayName + "’缺少参数名称");
+            return resolveParamValueType(declaredParamType, displayName, context);
+        }
         String sceneIdText = text(extraState.get("sceneId"));
         if (StringUtils.hasText(sceneIdText)
-                && !parseId(sceneIdText, "sceneId", blockType).equals(context.sceneId)) {
-            throw new BizException(ErrorCode.PARAM_ERROR, blockType + " 引用场景与模板场景不一致");
+                && !sceneIdText.equals(String.valueOf(context.sceneId))) {
+            context.errors.add("参数‘" + displayName + "’引用场景与当前模板场景不一致");
+            return resolveParamValueType(declaredParamType, displayName, context);
         }
-        MsgSceneParam param = resolveSceneParam(extraState, paramName, blockType, context);
+        MsgSceneParam param = resolveSceneParam(extraState, paramName, context);
         if (param == null || !context.sceneId.equals(param.getSceneId())) {
-            throw new BizException(ErrorCode.PARAM_ERROR,
-                    blockType + " 引用参数不存在或不属于当前场景");
+            context.errors.add("参数‘" + displayName + "’在当前场景中不存在或参数ID已失效");
+            return resolveParamValueType(declaredParamType, displayName, context);
         }
         if (!param.getParamName().equals(paramName)) {
-            throw new BizException(ErrorCode.PARAM_ERROR,
-                    blockType + " 参数名已变更，当前名称为 " + param.getParamName());
+            context.errors.add("参数‘" + displayName + "’名称不一致，当前参数名称为‘"
+                    + param.getParamName() + "’");
+            return resolveParamValueType(param.getParamType(), displayName, context);
         }
-        String paramType = text(extraState.get("paramType"));
-        if (StringUtils.hasText(paramType) && !param.getParamType().equals(paramType)) {
-            throw new BizException(ErrorCode.PARAM_ERROR,
-                    blockType + " 参数类型已变更，当前类型为 " + param.getParamType());
+        if (StringUtils.hasText(declaredParamType) && !param.getParamType().equals(declaredParamType)) {
+            context.errors.add("参数‘" + displayName + "’类型不一致：模板为 " + declaredParamType
+                    + "，当前场景为 " + param.getParamType());
+            return resolveParamValueType(declaredParamType, displayName, context);
         }
         context.referencedParamIds.add(param.getId());
         context.referencedParamCounts.merge(param.getId(), 1L, Long::sum);
-        try {
-            return BlocklyValueType.fromParamType(param.getParamType());
-        } catch (IllegalArgumentException ex) {
-            throw new BizException(ErrorCode.PARAM_ERROR,
-                    blockType + " 的 paramType 不支持：" + param.getParamType());
-        }
+        return resolveParamValueType(param.getParamType(), displayName, context);
     }
 
     private MsgSceneParam resolveSceneParam(JsonNode extraState,
                                             String paramName,
-                                            String blockType,
                                             ValidationContext context) {
         String paramIdText = text(extraState.get("paramId"));
         if (StringUtils.hasText(paramIdText)) {
-            return context.params.get(parseId(paramIdText, "paramId", blockType));
+            return findParamByIdText(context.params, paramIdText);
         }
-        return context.params.values().stream()
-                .filter(param -> paramName.equals(param.getParamName()))
-                .findFirst()
-                .orElse(null);
+        return findParamByName(context.params, paramName);
+    }
+
+    private BlocklyValueType resolveParamValueType(String paramType,
+                                                    String displayName,
+                                                    ValidationContext context) {
+        if (!StringUtils.hasText(paramType)) {
+            context.errors.add("参数‘" + displayName + "’缺少参数类型");
+            return BlocklyValueType.STRING;
+        }
+        try {
+            return BlocklyValueType.fromParamType(paramType);
+        } catch (IllegalArgumentException ex) {
+            context.errors.add("参数‘" + displayName + "’的参数类型不受支持：" + paramType);
+            return BlocklyValueType.STRING;
+        }
     }
 
     private void validateAttachedNext(JsonNode block, int depth, ValidationContext context) {
@@ -1275,24 +1455,6 @@ public class BlocklyJsonValidator {
         };
     }
 
-    private String requiredText(JsonNode node, String field, String blockType) {
-        String value = text(node.get(field));
-        if (!StringUtils.hasText(value)) {
-            throw new BizException(ErrorCode.PARAM_ERROR,
-                    blockType + " 的 " + field + " 不能为空且必须为字符串");
-        }
-        return value;
-    }
-
-    private Long parseId(String value, String field, String blockType) {
-        try {
-            return Long.valueOf(value);
-        } catch (NumberFormatException ex) {
-            throw new BizException(ErrorCode.PARAM_ERROR,
-                    blockType + " 的 " + field + " 必须为有效 ID 字符串");
-        }
-    }
-
     private String text(JsonNode node) {
         return node != null && node.isTextual() ? node.textValue() : null;
     }
@@ -1355,6 +1517,7 @@ public class BlocklyJsonValidator {
         private final Map<Long, MsgSceneParam> params;
         private final Set<Long> referencedParamIds = new HashSet<>();
         private final Map<Long, Long> referencedParamCounts = new LinkedHashMap<>();
+        private final Set<String> errors = new LinkedHashSet<>();
         private BlocklyValueType loopItemType;
         private int blockCount;
 

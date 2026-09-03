@@ -31,7 +31,6 @@ import com.csg.ecard.messagecenter.module.template.entity.MsgTemplate;
 import com.csg.ecard.messagecenter.module.template.entity.MsgTemplateUnit;
 import com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateMapper;
 import com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateUnitMapper;
-import com.csg.ecard.messagecenter.module.template.mapper.TemplateOverviewRow;
 import com.csg.ecard.messagecenter.module.template.mapper.TemplateQueryRow;
 import com.csg.ecard.messagecenter.module.template.service.MsgTemplateService;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateCopyVO;
@@ -53,6 +52,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -85,12 +85,18 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
 
     @Override
     public TemplateOverviewVO overview() {
-        TemplateOverviewRow row = msgTemplateMapper.selectOverview();
+        List<TemplateQueryRow> rows = msgTemplateMapper.selectOverviewTemplates();
+        List<TemplateContentItem> items = evaluateContent(rows);
+        long editedCount = items.stream()
+                .filter(item -> item.content().hasValidContent())
+                .count();
         TemplateOverviewVO vo = new TemplateOverviewVO();
-        vo.setTotal(value(row == null ? null : row.getTotal()));
-        vo.setEditedCount(value(row == null ? null : row.getEditedCount()));
-        vo.setEnabledCount(value(row == null ? null : row.getEnabledCount()));
-        vo.setPendingCount(value(row == null ? null : row.getPendingCount()));
+        vo.setTotal(items.size());
+        vo.setEditedCount(editedCount);
+        vo.setEnabledCount(items.stream()
+                .filter(item -> CommonStatus.ENABLE.getCode().equals(item.row().getStatus()))
+                .count());
+        vo.setPendingCount(items.size() - editedCount);
         return vo;
     }
 
@@ -102,19 +108,32 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         validateContentStatus(query.getContentStatus());
         normalizeQuery(query);
 
+        if (query.getContentStatus() == 1 || query.getContentStatus() == 2) {
+            List<TemplateContentItem> filtered = evaluateContent(msgTemplateMapper.selectTemplateList(query))
+                    .stream()
+                    .filter(item -> matchesContentStatus(
+                            item.content().hasValidContent(), query.getContentStatus()))
+                    .toList();
+            long offset = (long) (query.getPageNum() - 1) * query.getPageSize();
+            int fromIndex = (int) Math.min(offset, filtered.size());
+            int toIndex = Math.min(fromIndex + query.getPageSize(), filtered.size());
+            List<TemplateListVO> list = filtered.subList(fromIndex, toIndex).stream()
+                    .map(item -> toListVO(item.row(), item.content().hasValidContent()))
+                    .toList();
+            return PageResult.of(list, filtered.size(), query.getPageNum(), query.getPageSize());
+        }
+
         Page<TemplateQueryRow> page = new Page<>(query.getPageNum(), query.getPageSize());
         Page<TemplateQueryRow> result = msgTemplateMapper.selectTemplatePage(page, query);
-        List<TemplateListVO> list = result.getRecords().stream()
-                .map(this::toListVO)
+        List<TemplateListVO> list = evaluateContent(result.getRecords()).stream()
+                .map(item -> toListVO(item.row(), item.content().hasValidContent()))
                 .toList();
         return PageResult.of(list, result.getTotal(), result.getCurrent(), result.getSize());
     }
 
     @Override
     public List<TemplateFilterOptionVO> sceneFilterOptions() {
-        return msgSceneMapper.selectList(new LambdaQueryWrapper<MsgScene>()
-                        .select(MsgScene::getId, MsgScene::getSceneName, MsgScene::getStatus)
-                        .orderByAsc(MsgScene::getSceneName, MsgScene::getId))
+        return msgSceneMapper.selectTemplateFilterOptions()
                 .stream()
                 .map(this::toSceneFilterOption)
                 .toList();
@@ -127,16 +146,18 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         if (row == null) {
             throw new BizException(ErrorCode.DATA_NOT_FOUND, TEMPLATE_NOT_FOUND);
         }
-        TemplateDetailVO vo = toDetailVO(row);
+        Map<Long, MsgSceneParam> sceneParams = loadSceneParamMap(row.getSceneId());
+        ContentEvaluation content = evaluateContent(
+                row.getId(), row.getBlocklyJson(), row.getSceneId(), sceneParams);
+        TemplateDetailVO vo = toDetailVO(row, content.hasValidContent());
         List<String> unitIds = msgTemplateUnitMapper.selectUnitIdsByTemplateId(id);
         vo.setUnitIds(unitIds == null ? Collections.emptyList() : unitIds);
         if (StringUtils.hasText(row.getBlocklyJson())) {
-            BlocklyValidationResult validation = blocklyJsonValidator.validateStored(
-                    row.getBlocklyJson(), row.getSceneId(), loadSceneParamMap(row.getSceneId()),
-                    BlocklyValidationMode.DRAFT);
-            vo.setBlocklyJson(validation.getBlocklyJson());
+            vo.setBlocklyJson(content.validation() == null
+                    ? blocklyJsonValidator.readNullable(row.getBlocklyJson())
+                    : content.validation().getBlocklyJson());
         }
-        vo.setSceneParams(listSceneParams(row.getSceneId()));
+        vo.setSceneParams(sceneParams.values().stream().map(this::toSceneParamVO).toList());
         return vo;
     }
 
@@ -165,25 +186,30 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
     public TemplateDetailVO update(Long id, TemplateUpdateDTO request) {
         MsgTemplate existed = requireTemplate(id);
         validateTemplateName(request.getTemplateName());
+        MsgScene targetScene = requireScene(request.getSceneId(), true);
         ChannelType channelType = requireChannelType(request.getChannelType());
-        if (!Objects.equals(existed.getChannelType(), channelType.getCode())) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "编辑模板时不允许修改渠道类型");
-        }
         validateStatus(request.getStatus());
-        ensureTemplateNameUnique(existed.getSceneId(), request.getTemplateName(), id);
+        ensureTemplateNameUnique(targetScene.getId(), request.getTemplateName(), id);
         if (CommonStatus.DISABLE.getCode().equals(existed.getStatus())
                 && CommonStatus.ENABLE.getCode().equals(request.getStatus())
                 ) {
-            validateForEnable(existed);
+            MsgTemplate enableCandidate = new MsgTemplate();
+            enableCandidate.setSceneId(targetScene.getId());
+            enableCandidate.setBlocklyJson(existed.getBlocklyJson());
+            validateForEnable(enableCandidate);
         }
         List<String> unitIds = normalizeUnitIds(request.getUnitIds());
 
         MsgTemplate update = new MsgTemplate();
         update.setId(id);
         update.setTemplateName(request.getTemplateName().trim());
+        update.setSceneId(targetScene.getId());
         update.setChannelType(channelType.getCode());
         update.setStatus(request.getStatus());
-        msgTemplateMapper.updateById(update);
+        int updated = msgTemplateMapper.updateById(update);
+        if (updated == 0) {
+            throw new BizException(ErrorCode.STATUS_NOT_ALLOWED, "模板更新失败，请刷新后重试");
+        }
 
         msgTemplateUnitMapper.deleteByTemplateId(id);
         saveUnits(id, unitIds);
@@ -195,7 +221,10 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
     public void delete(Long id) {
         requireTemplate(id);
         msgTemplateUnitMapper.deleteByTemplateId(id);
-        msgTemplateMapper.deleteById(id);
+        int deleted = msgTemplateMapper.deleteById(id);
+        if (deleted != 1) {
+            throw new BizException(ErrorCode.DATA_NOT_FOUND, "模板不存在或已被删除");
+        }
     }
 
     @Override
@@ -223,25 +252,48 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         MsgTemplate source = requireTemplate(id);
         validateTemplateName(request.getTemplateName());
         MsgScene targetScene = requireScene(request.getSceneId(), true);
+        ChannelType targetChannelType = requireChannelType(request.getChannelType());
         ensureTemplateNameUnique(targetScene.getId(), request.getTemplateName(), null);
         List<String> unitIds = normalizeUnitIds(request.getUnitIds());
 
         MsgTemplate copied = new MsgTemplate();
         copied.setTemplateName(request.getTemplateName().trim());
         copied.setSceneId(targetScene.getId());
-        copied.setChannelType(source.getChannelType());
-        if (Boolean.TRUE.equals(request.getCopyContent()) && hasContent(source.getBlocklyJson())) {
-            BlocklyValidationResult sourceValidation = blocklyJsonValidator.validateStored(
-                    source.getBlocklyJson(), source.getSceneId(), loadSceneParamMap(source.getSceneId()),
-                    BlocklyValidationMode.DRAFT);
-            copied.setBlocklyJson(blocklyJsonValidator.write(sourceValidation.getBlocklyJson()));
-        } else {
-            copied.setBlocklyJson(null);
+        copied.setChannelType(targetChannelType.getCode());
+        boolean copiedHasContent = false;
+        boolean sourceContentCopied = false;
+        if (Boolean.TRUE.equals(request.getCopyContent())) {
+            Map<Long, MsgSceneParam> sourceParams = loadSceneParamMap(source.getSceneId());
+            ContentEvaluation sourceContent = evaluateContent(
+                    source.getId(), source.getBlocklyJson(), source.getSceneId(), sourceParams);
+            if (sourceContent.hasValidContent()) {
+                // 跨场景复制只创建草稿，完整保留参数引用供编辑器重绑或标记冲突。
+                copied.setBlocklyJson(blocklyJsonValidator.write(
+                        sourceContent.validation().getBlocklyJson().deepCopy()));
+                sourceContentCopied = true;
+            }
         }
         copied.setStatus(CommonStatus.DISABLE.getCode());
-        msgTemplateMapper.insert(copied);
+        int inserted = msgTemplateMapper.insert(copied);
+        if (inserted == 0 || copied.getId() == null) {
+            throw new BizException(ErrorCode.DATABASE_ERROR, "模板复制失败，未生成模板ID");
+        }
         saveUnits(copied.getId(), unitIds);
-        return new TemplateCopyVO(copied.getId(), copied.getTemplateName(), hasContent(copied.getBlocklyJson()));
+        if (sourceContentCopied) {
+            copiedHasContent = Objects.equals(source.getSceneId(), targetScene.getId())
+                    || evaluateContent(
+                            copied.getId(),
+                            copied.getBlocklyJson(),
+                            targetScene.getId(),
+                            loadSceneParamMap(targetScene.getId()))
+                    .hasValidContent();
+        }
+        return new TemplateCopyVO(
+                copied.getId(),
+                copied.getTemplateName(),
+                copied.getSceneId(),
+                copied.getChannelType(),
+                copiedHasContent);
     }
 
     @Override
@@ -274,7 +326,7 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         TemplateContentVO vo = new TemplateContentVO();
         vo.setTemplateId(saved.getId());
         vo.setBlocklyJson(savedBlocklyJson);
-        vo.setHasContent(hasContent(saved.getBlocklyJson()));
+        vo.setHasContent(hasValidContent(validation));
         vo.setValid(validation.isValid());
         vo.setErrors(validation.getErrors());
         vo.setUpdatedAt(saved.getUpdateTime());
@@ -305,14 +357,12 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
                     params,
                     BlocklyValidationMode.DRAFT);
         } else {
-            if (!hasContent(template.getBlocklyJson())) {
+            ContentEvaluation content = evaluateContent(
+                    template.getId(), template.getBlocklyJson(), sceneId, params);
+            if (!content.hasValidContent()) {
                 throw new BizException(ErrorCode.TEMPLATE_EMPTY, "模板内容为空，无法预览");
             }
-            validation = blocklyJsonValidator.validateStored(
-                    template.getBlocklyJson(),
-                    sceneId,
-                    params,
-                    BlocklyValidationMode.DRAFT);
+            validation = content.validation();
         }
 
         BlocklyRenderResult rendered = blocklyRenderer.render(
@@ -456,9 +506,10 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
             throw new BizException(ErrorCode.CHANNEL_TYPE_INVALID, "渠道类型不能为空");
         }
         try {
-            return ChannelType.fromCode(channelType);
+            return ChannelType.fromCode(channelType.trim());
         } catch (IllegalArgumentException ex) {
-            throw new BizException(ErrorCode.CHANNEL_TYPE_INVALID, "渠道类型不合法");
+            throw new BizException(ErrorCode.CHANNEL_TYPE_INVALID,
+                    "渠道类型不合法，仅支持SMS、EMAIL、ELINK、IN_APP");
         }
     }
 
@@ -511,30 +562,64 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
-    private long value(Long value) {
-        return value == null ? 0L : value;
+    private List<TemplateContentItem> evaluateContent(List<TemplateQueryRow> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<Long, Map<Long, MsgSceneParam>> paramsByScene = loadSceneParamMaps(
+                rows.stream().map(TemplateQueryRow::getSceneId).distinct().toList());
+        List<TemplateContentItem> result = new ArrayList<>(rows.size());
+        for (TemplateQueryRow row : rows) {
+            ContentEvaluation content = evaluateContent(
+                    row.getId(),
+                    row.getBlocklyJson(),
+                    row.getSceneId(),
+                    paramsByScene.getOrDefault(row.getSceneId(), Collections.emptyMap()));
+            result.add(new TemplateContentItem(row, content));
+        }
+        return List.copyOf(result);
     }
 
-    private boolean hasContent(String blocklyJson) {
+    private ContentEvaluation evaluateContent(Long templateId,
+                                                String blocklyJson,
+                                                Long sceneId,
+                                                Map<Long, MsgSceneParam> params) {
         if (!StringUtils.hasText(blocklyJson)) {
-            return false;
+            return new ContentEvaluation(false, null);
         }
         try {
-            return !blocklyJsonValidator.isBlocklyContentEmpty(blocklyJson);
+            BlocklyValidationResult validation = blocklyJsonValidator.validateStored(
+                    blocklyJson,
+                    sceneId,
+                    params == null ? Collections.emptyMap() : params,
+                    BlocklyValidationMode.DRAFT);
+            return new ContentEvaluation(hasValidContent(validation), validation);
         } catch (BizException ex) {
-            return true;
+            log.warn("Template content is invalid. templateId={}, cause={}", templateId, ex.getMessage());
+            return new ContentEvaluation(false, null);
         }
+    }
+
+    private boolean hasValidContent(BlocklyValidationResult validation) {
+        return validation != null && validation.isHasContent() && validation.isValid();
     }
 
     private void validateForEnable(MsgTemplate template) {
         requireScene(template.getSceneId(), true);
-        if (!hasContent(template.getBlocklyJson())) {
+        Map<Long, MsgSceneParam> params = loadSceneParamMap(template.getSceneId());
+        ContentEvaluation content = evaluateContent(
+                template.getId(), template.getBlocklyJson(), template.getSceneId(), params);
+        if (!content.hasValidContent()) {
+            if (content.validation() != null && content.validation().isHasContent()) {
+                throw new BizException(ErrorCode.PARAM_ERROR,
+                        String.join("；", content.validation().getErrors()));
+            }
             throw new BizException(ErrorCode.STATUS_NOT_ALLOWED, CONTENT_REQUIRED);
         }
         BlocklyValidationResult validation = blocklyJsonValidator.validateStored(
                 template.getBlocklyJson(),
                 template.getSceneId(),
-                loadSceneParamMap(template.getSceneId()),
+                params,
                 BlocklyValidationMode.ENABLE);
         blocklyRenderer.validateRenderable(validation.getBlocklyJson());
     }
@@ -667,21 +752,8 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
     }
 
     private boolean validateReferenceContent(TemplateQueryRow row, Map<Long, MsgSceneParam> params) {
-        if (!StringUtils.hasText(row.getBlocklyJson())) {
-            return false;
-        }
-        try {
-            BlocklyValidationResult validation = blocklyJsonValidator.validateStored(
-                    row.getBlocklyJson(),
-                    row.getSceneId(),
-                    params,
-                    BlocklyValidationMode.DRAFT);
-            return validation.isHasContent() && validation.isValid();
-        } catch (BizException ex) {
-            log.warn("Reference template content is invalid. templateId={}, cause={}",
-                    row.getId(), ex.getMessage());
-            return false;
-        }
+        return evaluateContent(
+                row.getId(), row.getBlocklyJson(), row.getSceneId(), params).hasValidContent();
     }
 
     private Map<Long, Map<Long, MsgSceneParam>> loadSceneParamMaps(List<Long> sceneIds) {
@@ -724,28 +796,37 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
     private record ReferenceItem(TemplateQueryRow row, boolean hasContent) {
     }
 
-    private TemplateListVO toListVO(TemplateQueryRow row) {
+    private record ContentEvaluation(boolean hasValidContent, BlocklyValidationResult validation) {
+    }
+
+    private record TemplateContentItem(TemplateQueryRow row, ContentEvaluation content) {
+    }
+
+    private TemplateListVO toListVO(TemplateQueryRow row, boolean hasValidContent) {
         TemplateListVO vo = new TemplateListVO();
-        fillListVO(vo, row);
+        fillListVO(vo, row, hasValidContent);
         return vo;
     }
 
     private TemplateFilterOptionVO toSceneFilterOption(MsgScene scene) {
         TemplateFilterOptionVO option = new TemplateFilterOptionVO();
         option.setValue(String.valueOf(scene.getId()));
-        option.setLabel(scene.getSceneName());
+        option.setLabel(scene.getSceneCode() + " - " + scene.getSceneName());
+        option.setSceneCode(scene.getSceneCode());
+        option.setSceneName(scene.getSceneName());
         option.setStatus(scene.getStatus());
         return option;
     }
 
-    private TemplateDetailVO toDetailVO(TemplateQueryRow row) {
+    private TemplateDetailVO toDetailVO(TemplateQueryRow row, boolean hasValidContent) {
         TemplateDetailVO vo = new TemplateDetailVO();
-        fillListVO(vo, row);
+        fillListVO(vo, row, hasValidContent);
         return vo;
     }
 
-    private void fillListVO(TemplateListVO vo, TemplateQueryRow row) {
-        boolean contentPresent = hasContent(row.getBlocklyJson());
+    private void fillListVO(TemplateListVO vo,
+                            TemplateQueryRow row,
+                            boolean hasValidContent) {
         vo.setId(row.getId());
         vo.setTemplateName(row.getTemplateName());
         vo.setSceneId(row.getSceneId());
@@ -754,8 +835,8 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         vo.setChannelType(row.getChannelType());
         vo.setChannelTypeDesc(ChannelType.fromCode(row.getChannelType()).getDesc());
         vo.setUnitCount(row.getUnitCount() == null ? 0L : row.getUnitCount());
-        vo.setHasContent(contentPresent);
-        vo.setContentStatusDesc(contentPresent
+        vo.setHasContent(hasValidContent);
+        vo.setContentStatusDesc(hasValidContent
                 ? TemplateContentStatus.EDITED.getDesc()
                 : TemplateContentStatus.EMPTY.getDesc());
         vo.setStatus(row.getStatus());

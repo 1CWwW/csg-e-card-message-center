@@ -71,7 +71,10 @@ class OrganizationServiceImplTest {
 
     @Test
     void shouldQueryOnlyDirectChildren() {
-        when(provider.children("100")).thenReturn(List.of(node("101", "100"), node("102", "100")));
+        OrganizationNode inactive = node("103", "100");
+        inactive.setState(0);
+        when(provider.children("100")).thenReturn(List.of(
+                node("101", "100"), node("102", "100"), inactive));
 
         List<OrganizationLazyNodeVO> result = service.children("100");
 
@@ -164,28 +167,57 @@ class OrganizationServiceImplTest {
     }
 
     @Test
-    void shouldResolveMultipleOrganizationsWithAncestorsInOneProviderCall() {
+    void shouldResolveMultipleOrganizationsAsFlatNodesAndIgnoreDuplicatesAndMissingIds() {
         OrganizationNode root = node("100", null);
         OrganizationNode child = node("101", "100");
         OrganizationNode sibling = node("102", "100");
-        when(provider.resolve(List.of("101", "102"))).thenReturn(List.of(
+        when(provider.resolve(List.of("101", "missing", "102"))).thenReturn(List.of(
                 new OrganizationPath(child, List.of(root)),
                 new OrganizationPath(sibling, List.of(root))));
-        when(provider.parentOrgIdsWithChildren(Set.of("100"))).thenReturn(Set.of("100"));
+        when(provider.parentOrgIdsWithChildren(List.of("101", "102"))).thenReturn(Set.of("101"));
         OrganizationResolveDTO request = new OrganizationResolveDTO();
-        request.setOrgIds(List.of("101", "102"));
+        request.setOrgIds(List.of("101", "101", "missing", "102"));
 
-        assertThat(service.resolve(request)).hasSize(2)
-                .allSatisfy(item -> assertThat(item.getAncestors()).extracting(OrganizationLazyNodeVO::getOrgId)
-                        .containsExactly("100"));
+        List<OrganizationLazyNodeVO> result = service.resolve(request);
 
-        verify(provider).resolve(List.of("101", "102"));
+        assertThat(result).extracting(OrganizationLazyNodeVO::getOrgId)
+                .containsExactly("101", "102");
+        assertThat(result).first().satisfies(item -> {
+            assertThat(item.isHasChildren()).isTrue();
+            assertThat(item.getChildren()).isEmpty();
+        });
+
+        verify(provider).resolve(List.of("101", "missing", "102"));
     }
 
     @Test
     void shouldNotQueryProviderWhenSearchKeywordIsBlank() {
         assertThat(service.search("  ")).isEmpty();
         verify(provider, never()).search(any(), org.mockito.ArgumentMatchers.anyInt(), any());
+    }
+
+    @Test
+    void shouldOmitInactiveAndOutOfScopeNodesFromResolveAndSearch() {
+        CurrentUserContext.set(new CurrentUserContext.UserInfo("user", "用户", "100", "单位", null, null));
+        OrganizationNode allowed = node("101", "100");
+        OrganizationNode inactive = node("102", "100");
+        inactive.setState(0);
+        OrganizationNode outside = node("201", "200");
+        List<OrganizationPath> paths = List.of(
+                new OrganizationPath(allowed, List.of()),
+                new OrganizationPath(inactive, List.of()),
+                new OrganizationPath(outside, List.of()));
+        when(provider.resolve(List.of("101", "102", "201"))).thenReturn(paths);
+        when(provider.search("单位", 50, "100")).thenReturn(paths);
+        when(provider.isWithinScope("101", "100")).thenReturn(true);
+        when(provider.isWithinScope("201", "100")).thenReturn(false);
+        OrganizationResolveDTO request = new OrganizationResolveDTO();
+        request.setOrgIds(List.of("101", "102", "201"));
+
+        assertThat(service.resolve(request)).extracting(OrganizationLazyNodeVO::getOrgId)
+                .containsExactly("101");
+        assertThat(service.search(" 单位 ")).extracting(OrganizationLazyNodeVO::getOrgId)
+                .containsExactly("101");
     }
 
     private OrganizationNode node(String orgId, String parentOrgId) {
