@@ -9,11 +9,12 @@ import java.util.List;
 
 /**
  * 内网组织接口返回对象，只保留当前业务需要字段。
+ * 作为 Feign 接口的直接返回类型，必须公开以供 JDK 动态代理访问。
  */
 @Getter
 @Setter
 @JsonIgnoreProperties(ignoreUnknown = true)
-class RemoteOrganizationDTO {
+public class RemoteOrganizationDTO {
 
     private String orgId;
 

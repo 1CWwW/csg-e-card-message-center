@@ -34,7 +34,8 @@ import java.util.concurrent.ConcurrentMap;
 @RequiredArgsConstructor
 public class OrganizationServiceImpl implements OrganizationService, OrganizationCacheInvalidator {
 
-    private static final String CACHE_PREFIX = "organization:children:";
+    // 与旧单位树缓存隔离，避免接口切换后仍遗漏虚拟分组及其下属单位。
+    private static final String CACHE_PREFIX = "organization:unit-children:v2:";
     private static final String ROOT_KEY = "root";
     private static final String ALL_SCOPE = "all";
     private static final String GLOBAL_VERSION_KEY = CACHE_PREFIX + "version:all";
@@ -230,8 +231,9 @@ public class OrganizationServiceImpl implements OrganizationService, Organizatio
     private String childrenCacheKey(String parentOrgId, String scopeOrgId) {
         String parent = parentOrgId == null ? ROOT_KEY : parentOrgId;
         String scope = scopeOrgId == null ? ALL_SCOPE : scopeOrgId;
+        String sourceRoot = trimToNull(organizationProperties.getRemote().getRootOrgId());
         return CACHE_PREFIX + "v" + version(GLOBAL_VERSION_KEY) + ":p" + version(parentVersionKey(parentOrgId))
-                + ":" + scope + ":" + parent;
+                + ":" + (sourceRoot == null ? ROOT_KEY : sourceRoot) + ":" + scope + ":" + parent;
     }
 
     private boolean childrenCacheEnabled() {

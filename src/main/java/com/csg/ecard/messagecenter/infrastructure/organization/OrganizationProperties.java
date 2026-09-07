@@ -44,6 +44,11 @@ public class OrganizationProperties {
     public static class Remote {
 
         /**
+         * 单位树根单位ID，默认南方电网，可由部署配置覆盖。
+         */
+        private String rootOrgId = "1";
+
+        /**
          * 内网组织服务基础地址，例如 http://public-jadp-service。
          */
         private String baseUrl;

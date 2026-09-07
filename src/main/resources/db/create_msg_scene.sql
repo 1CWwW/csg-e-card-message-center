@@ -94,7 +94,7 @@ CREATE INDEX idx_msg_scene_param_scene_sort ON msg_scene_param (scene_id, sort_o
 CREATE TABLE msg_channel
 (
     id           BIGINT                              NOT NULL,
-    channel_name VARCHAR(50)                         NOT NULL,
+    channel_name VARCHAR(200)                        NOT NULL,
     channel_type VARCHAR(32)                         NOT NULL,
     type_config  CLOB,
     priority     INT                                 NOT NULL,
