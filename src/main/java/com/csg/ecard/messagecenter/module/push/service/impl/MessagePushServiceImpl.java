@@ -622,8 +622,8 @@ public class MessagePushServiceImpl implements MessagePushService {
         MsgScene scene = requireEnabledScene(request.getSceneCode());
         List<MsgSceneParam> sceneParams = loadSceneParams(scene.getId());
         Map<String, Object> rawSceneParams = safeSceneParams(request.getSceneParams());
-        Map<String, JsonNode> values = validateSceneParams(
-                sceneParams, rawSceneParams, !StringUtils.hasText(request.getContent()));
+        Map<String, JsonNode> values = new LinkedHashMap<>();
+        rawSceneParams.forEach((key, value) -> values.put(key, objectMapper.valueToTree(value)));
         String serializedSceneParams = serializeSceneParams(rawSceneParams);
         Map<Long, MsgSceneParam> paramMap = sceneParams.stream()
                 .collect(Collectors.toMap(MsgSceneParam::getId, item -> item));
@@ -896,13 +896,24 @@ public class MessagePushServiceImpl implements MessagePushService {
             result.setChannelName(channel.getChannelName());
 
             if (StringUtils.hasText(request.getContent())) {
+                validateSceneParams(new ArrayList<>(paramMap.values()), safeSceneParams(request.getSceneParams()), false);
                 result.setMessageContent(request.getContent());
             } else {
                 BlocklyValidationResult validation = blocklyJsonValidator.validateStored(
                         template.getBlocklyJson(), scene.getId(), paramMap, BlocklyValidationMode.ENABLE);
-                BlocklyRenderResult rendered = blocklyRenderer.render(
-                        validation.getBlocklyJson(), scene.getId(), paramMap, values);
-                result.setMessageContent(rendered.renderedContent());
+                if (com.csg.ecard.messagecenter.module.template.rule.RuleTemplateEngine.isRule(validation.getBlocklyJson())) {
+                    var rendered = blocklyJsonValidator.renderRules(validation.getBlocklyJson().path("ruleTemplate"),
+                            scene.getId(), paramMap, values);
+                    if (!rendered.errors().isEmpty()) {
+                        throw new BizException(ErrorCode.PARAM_ERROR, String.join("；", rendered.errors()));
+                    }
+                    result.setMessageContent(rendered.content());
+                } else {
+                    validateSceneParams(new ArrayList<>(paramMap.values()), safeSceneParams(request.getSceneParams()), true);
+                    BlocklyRenderResult rendered = blocklyRenderer.render(
+                            validation.getBlocklyJson(), scene.getId(), paramMap, values);
+                    result.setMessageContent(rendered.renderedContent());
+                }
             }
             sendInfo = buildSendInfo(pcId, messageId, request, scene, template, result.getMessageContent());
             fillResultSnapshot(result, request, sendInfo);

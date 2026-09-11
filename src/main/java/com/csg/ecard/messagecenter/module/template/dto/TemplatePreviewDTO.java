@@ -31,4 +31,10 @@ public class TemplatePreviewDTO {
     @Schema(description = "以场景参数名为key的JSON示例值；BOOLEAN参数必须传true或false，不能传字符串",
             example = "{\"isPark\":true}")
     private Map<String, JsonNode> values = new LinkedHashMap<>();
+    @Schema(description = "编辑模式：BLOCKLY或RULE_VERSIONS；历史请求默认BLOCKLY")
+    private String editorType;
+
+    @Schema(description = "条件模板完整规则文档，editorType=RULE_VERSIONS时必填")
+    private JsonNode ruleTemplate;
+
 }

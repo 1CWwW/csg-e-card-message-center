@@ -9,12 +9,8 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
-import java.time.format.DateTimeParseException;
-import java.time.temporal.ChronoField;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -24,7 +20,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
  * Blockly 正文递归表达式渲染器。
@@ -37,13 +32,7 @@ public class BlocklyRenderer {
     private static final int MAX_LOOP_ITERATIONS = 100;
     private static final int MAX_EXPRESSION_DEPTH = 100;
     private static final int MAX_RENDERED_CONTENT_BYTES = 1024 * 1024;
-    private static final String DEFAULT_TIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
-    private static final DateTimeFormatter TIME_VALUE_FORMATTER = new DateTimeFormatterBuilder()
-            .appendPattern(DEFAULT_TIME_FORMAT)
-            .optionalStart()
-            .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true)
-            .optionalEnd()
-            .toFormatter();
+    private static final String DEFAULT_TIME_FORMAT = TemplateTimeFormatter.BLOCKLY_DEFAULT_PATTERN;
     private static final String LINKED_NODE_MODE = "LINKED_NODES";
 
     private final SceneParamValueValidator valueValidator;
@@ -257,7 +246,7 @@ public class BlocklyRenderer {
         String pattern = requireString(renderInput(block, "PATTERN", context),
                 BlocklyBlockTypes.STRING_LIKE, "PATTERN");
         return new BlocklyRenderValue(BlocklyValueType.BOOLEAN,
-                Pattern.compile(toLikeRegex(pattern), Pattern.DOTALL).matcher(text).matches());
+                TemplateStringMatcher.matchesLike(text, pattern));
     }
 
     private BlocklyRenderValue renderControlsIf(JsonNode block, BlockRenderContext context) {
@@ -440,29 +429,6 @@ public class BlocklyRenderer {
                     "controls_forEach 的 SEPARATOR 必须是字符串");
         }
         return separator.textValue();
-    }
-
-    private String toLikeRegex(String likePattern) {
-        StringBuilder regex = new StringBuilder("^");
-        StringBuilder literal = new StringBuilder();
-        for (int i = 0; i < likePattern.length(); i++) {
-            char current = likePattern.charAt(i);
-            if (current == '%') {
-                appendQuoted(regex, literal);
-                regex.append(".*");
-            } else {
-                literal.append(current);
-            }
-        }
-        appendQuoted(regex, literal);
-        return regex.append('$').toString();
-    }
-
-    private void appendQuoted(StringBuilder regex, StringBuilder literal) {
-        if (!literal.isEmpty()) {
-            regex.append(Pattern.quote(literal.toString()));
-            literal.setLength(0);
-        }
     }
 
     private BigDecimal divide(BigDecimal dividend, BigDecimal divisor, String blockType) {
@@ -1127,7 +1093,7 @@ public class BlocklyRenderer {
         String pattern = requireString(renderGraphInput(blockId, graph, context, visiting,
                 "PATTERN", "rightValue"), BlocklyBlockTypes.STRING_LIKE, "PATTERN");
         return new BlocklyRenderValue(BlocklyValueType.BOOLEAN,
-                Pattern.compile(toLikeRegex(pattern), Pattern.DOTALL).matcher(text).matches());
+                TemplateStringMatcher.matchesLike(text, pattern));
     }
 
     private BlocklyRenderValue renderGraphControlsIf(String blockId,
@@ -1484,7 +1450,7 @@ public class BlocklyRenderer {
         String left = linkedOperand(index - 1, orderedBlocks, context).asText();
         String right = linkedOperand(index + 1, orderedBlocks, context).asText();
         return new BlocklyRenderValue(BlocklyValueType.BOOLEAN,
-                Pattern.compile(toLikeRegex(right), Pattern.DOTALL).matcher(left).matches());
+                TemplateStringMatcher.matchesLike(left, right));
     }
 
     private BlocklyRenderValue renderLinkedLogicOperation(int index,
@@ -1691,27 +1657,14 @@ public class BlocklyRenderer {
     }
 
     private LocalDateTime parseLinkedTime(String value) {
-        for (DateTimeFormatter formatter : List.of(
-                TIME_VALUE_FORMATTER,
-                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))) {
-            try {
-                return LocalDateTime.parse(value, formatter);
-            } catch (DateTimeParseException ignored) {
-                // 尝试下一种兼容格式。
-            }
-        }
         try {
-            return LocalDate.parse(value, DateTimeFormatter.ofPattern("yyyy-MM-dd")).atStartOfDay();
-        } catch (DateTimeParseException ignored) {
-            // 尝试 ISO_LOCAL_DATE_TIME。
+            return TemplateTimeFormatter.parseInstant(value)
+                    .atZone(TemplateTimeFormatter.DEFAULT_ZONE)
+                    .toLocalDateTime();
+        } catch (RuntimeException ex) {
+            throw new BizException(ErrorCode.RENDER_FAILED,
+                    "时间值格式不合法，应为 yyyy-MM-dd HH:mm:ss");
         }
-        try {
-            return LocalDateTime.parse(value, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-        } catch (DateTimeParseException ignored) {
-            // 统一返回业务错误。
-        }
-        throw new BizException(ErrorCode.RENDER_FAILED,
-                "时间值格式不合法，应为 yyyy-MM-dd HH:mm:ss");
     }
 
     private String formatTimeValue(String value, JsonNode block) {
@@ -1738,7 +1691,7 @@ public class BlocklyRenderer {
 
     private DateTimeFormatter requireLinkedTimeFormatter(String format) {
         try {
-            return DateTimeFormatter.ofPattern(format);
+            return TemplateTimeFormatter.outputFormatter(format);
         } catch (IllegalArgumentException ex) {
             throw new BizException(ErrorCode.RENDER_FAILED, "时间格式模板不合法：" + format);
         }

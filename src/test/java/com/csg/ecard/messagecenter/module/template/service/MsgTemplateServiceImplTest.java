@@ -1198,6 +1198,25 @@ class MsgTemplateServiceImplTest {
     }
 
     @Test
+    void shouldRenderLinkedTimeWithCustomPatternForAllSupportedInputs() {
+        ObjectNode sendTime = paramBlock(4L, "sendTime", ParamType.TIME);
+        sendTime.put("id", "time-param");
+        ObjectNode formatter = linkedTimeFormat("time-format", "yyyy年MM月dd日");
+        BlocklyValidationResult validation = actualValidator.validateWorkspace(1,
+                linkedWorkspace(sendTime, formatter), 1L,
+                expressionParams, BlocklyValidationMode.DRAFT);
+
+        for (JsonNode value : List.<JsonNode>of(
+                objectMapper.valueToTree("2026-11-12 11:12:13.123"),
+                objectMapper.valueToTree("2026-11-12T03:12:13Z"),
+                objectMapper.valueToTree(1794453133000L))) {
+            BlocklyRenderResult result = actualRenderer.render(validation.getBlocklyJson(), 1L,
+                    expressionParams, Map.of("sendTime", value));
+            assertThat(result.renderedContent()).isEqualTo("2026年11月12日");
+        }
+    }
+
+    @Test
     void shouldUseLinkedTimeFormatOnlyForOutput() {
         ObjectNode sendTime = paramBlock(4L, "sendTime", ParamType.TIME);
         sendTime.put("id", "time-param");

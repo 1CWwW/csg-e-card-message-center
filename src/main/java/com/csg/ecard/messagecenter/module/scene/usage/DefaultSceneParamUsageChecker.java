@@ -57,12 +57,9 @@ public class DefaultSceneParamUsageChecker implements SceneParamUsageChecker {
         for (MsgTemplate template : templates) {
             try {
                 blocklyJsonValidator.validateStored(
-                        template.getBlocklyJson(),
-                        sceneId,
-                        params,
-                        BlocklyValidationMode.DRAFT);
+                        template.getBlocklyJson(), sceneId, params, BlocklyValidationMode.DRAFT);
             } catch (BizException ex) {
-                log.error("Template Blockly JSON cannot be parsed for usage check. templateId={}, cause={}",
+                log.error("Template JSON cannot be parsed for usage check. templateId={}, cause={}",
                         template.getId(), ex.getMessage());
                 throw new BizException(ErrorCode.STATUS_NOT_ALLOWED,
                         "模板ID " + template.getId() + " 的内容无法解析，请先修复后再操作场景参数");

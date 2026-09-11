@@ -146,7 +146,7 @@ public class MsgTemplateController {
     }
 
     @PutMapping("/{id}/content")
-    @Operation(summary = "保存模板Blockly内容")
+    @Operation(summary = "保存模板内容", description = "支持原Blockly模式和RULE_VERSIONS条件模板模式")
     public CommonResult<TemplateContentVO> saveContent(@PathVariable Long id,
                                                      @RequestBody @Valid TemplateContentSaveDTO request) {
         return CommonResult.success(msgTemplateService.saveContent(id, request));

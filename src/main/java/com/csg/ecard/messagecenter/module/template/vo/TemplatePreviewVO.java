@@ -27,4 +27,9 @@ public class TemplatePreviewVO {
     private List<String> usedParams = Collections.emptyList();
 
     private List<String> warnings = Collections.emptyList();
+    private String matchedId;
+    private String matchedName;
+    private String content = "";
+    private List<com.csg.ecard.messagecenter.module.template.rule.RuleRenderResult.Trace> trace = Collections.emptyList();
+    private List<String> errors = Collections.emptyList();
 }

@@ -19,4 +19,10 @@ public class TemplateContentSaveDTO {
 
     @NotNull(message = "workspace不能为空")
     private JsonNode workspace;
+    @Schema(description = "编辑模式：BLOCKLY或RULE_VERSIONS；历史请求默认BLOCKLY")
+    private String editorType;
+
+    @Schema(description = "条件模板完整规则文档，editorType=RULE_VERSIONS时必填")
+    private JsonNode ruleTemplate;
+
 }

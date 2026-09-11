@@ -46,6 +46,8 @@ import com.csg.ecard.messagecenter.module.template.vo.TemplateReferenceVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateToolboxParamVO;
 import com.csg.ecard.messagecenter.module.template.vo.TemplateToolboxVO;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.csg.ecard.messagecenter.module.template.rule.RuleTemplateEngine;
+import com.csg.ecard.messagecenter.module.template.rule.RuleRenderResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -278,6 +280,19 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         if (inserted == 0 || copied.getId() == null) {
             throw new BizException(ErrorCode.DATABASE_ERROR, "模板复制失败，未生成模板ID");
         }
+        JsonNode copiedDocument = blocklyJsonValidator.readNullable(copied.getBlocklyJson());
+        if (RuleTemplateEngine.isRule(copiedDocument)) {
+            // 复制后的身份属于新模板；画布快照同步更新，跨场景引用仍需用户重绑。
+            var rule = (com.fasterxml.jackson.databind.node.ObjectNode) copiedDocument.path("ruleTemplate");
+            rule.put("templateId", String.valueOf(copied.getId()));
+            rule.put("sceneId", String.valueOf(copied.getSceneId()));
+            ((com.fasterxml.jackson.databind.node.ObjectNode) copiedDocument.path("workspace"))
+                    .set("ruleTemplate", rule.deepCopy());
+            copied.setBlocklyJson(blocklyJsonValidator.write(copiedDocument));
+            if (msgTemplateMapper.updateById(copied) != 1) {
+                throw new BizException(ErrorCode.DATABASE_ERROR, "复制模板内容写入失败");
+            }
+        }
         saveUnits(copied.getId(), unitIds);
         if (sourceContentCopied) {
             copiedHasContent = Objects.equals(source.getSceneId(), targetScene.getId())
@@ -301,31 +316,37 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
     public TemplateContentVO saveContent(Long id, TemplateContentSaveDTO request) {
         MsgTemplate template = requireTemplate(id);
         requireScene(template.getSceneId(), false);
-        BlocklyValidationResult validation = blocklyJsonValidator.validateWorkspace(
-                request.getSchemaVersion(),
-                request.getWorkspace(),
-                template.getSceneId(),
-                loadSceneParamMap(template.getSceneId()),
-                BlocklyValidationMode.DRAFT);
-        String serialized = blocklyJsonValidator.write(validation.getBlocklyJson());
-        boolean changed = contentChanged(template.getBlocklyJson(), validation.getBlocklyJson());
-
+        String mode = request.getEditorType() == null ? "BLOCKLY" : request.getEditorType();
+        boolean rule = RuleTemplateEngine.EDITOR_TYPE.equals(mode);
+        if (!rule && !"BLOCKLY".equals(mode)) throw new BizException(ErrorCode.PARAM_ERROR, "未知editorType");
+        if (!rule && (request.getRuleTemplate() != null || (request.getWorkspace() != null && request.getWorkspace().has("ruleTemplate")))) throw new BizException(ErrorCode.PARAM_ERROR, "规则文档必须明确使用RULE_VERSIONS模式");
+        JsonNode document;
+        BlocklyValidationResult validation;
+        if (rule) {
+            if (!Integer.valueOf(1).equals(request.getSchemaVersion())) throw new BizException(ErrorCode.PARAM_ERROR, "schemaVersion必须为1");
+            document = blocklyJsonValidator.ruleEnvelope(request.getRuleTemplate(), request.getWorkspace(),
+                    String.valueOf(id), template.getSceneId(), loadSceneParamMap(template.getSceneId()));
+            validation = blocklyJsonValidator.validateStored(blocklyJsonValidator.write(document), template.getSceneId(),
+                    loadSceneParamMap(template.getSceneId()), BlocklyValidationMode.DRAFT);
+        } else {
+            validation = blocklyJsonValidator.validateWorkspace(request.getSchemaVersion(), request.getWorkspace(),
+                    template.getSceneId(), loadSceneParamMap(template.getSceneId()), BlocklyValidationMode.DRAFT);
+            document = validation.getBlocklyJson();
+        }
+        boolean changed = contentChanged(template.getBlocklyJson(), document);
         MsgTemplate update = new MsgTemplate();
         update.setId(id);
-        update.setBlocklyJson(serialized);
+        update.setBlocklyJson(blocklyJsonValidator.write(document));
         if (changed && CommonStatus.ENABLE.getCode().equals(template.getStatus())) {
             update.setStatus(CommonStatus.DISABLE.getCode());
         }
-        int updated = msgTemplateMapper.updateById(update);
-        if (updated == 0) {
+        if (msgTemplateMapper.updateById(update) == 0) {
             throw new BizException(ErrorCode.STATUS_NOT_ALLOWED, "模板内容更新失败，请刷新后重试");
         }
-
         MsgTemplate saved = requireTemplate(id);
-        JsonNode savedBlocklyJson = blocklyJsonValidator.readNullable(saved.getBlocklyJson());
         TemplateContentVO vo = new TemplateContentVO();
         vo.setTemplateId(saved.getId());
-        vo.setBlocklyJson(savedBlocklyJson);
+        vo.setBlocklyJson(blocklyJsonValidator.readNullable(saved.getBlocklyJson()));
         vo.setHasContent(hasValidContent(validation));
         vo.setValid(validation.isValid());
         vo.setErrors(validation.getErrors());
@@ -345,6 +366,28 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         String channelType = requireChannelType(template.getChannelType()).getCode();
         Map<Long, MsgSceneParam> params = loadSceneParamMap(sceneId);
 
+        JsonNode stored = blocklyJsonValidator.readNullable(template.getBlocklyJson());
+        if (RuleTemplateEngine.EDITOR_TYPE.equals(request.getEditorType())
+                || (request.getEditorType() == null && request.getWorkspace() == null && RuleTemplateEngine.isRule(stored))) {
+            JsonNode rule = request.getRuleTemplate() != null ? request.getRuleTemplate() : stored == null ? null : stored.path("ruleTemplate");
+            if (rule != null && !request.getTemplateId().equals(rule.path("templateId").asText())) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "ruleTemplate.templateId与当前模板不一致");
+            }
+            RuleRenderResult result = blocklyJsonValidator.renderRules(rule, sceneId, params, request.getValues());
+            TemplatePreviewVO vo = new TemplatePreviewVO();
+            vo.setTemplateId(template.getId());
+            vo.setChannelType(channelType);
+            vo.setMatchedId(result.matchedId());
+            vo.setMatchedName(result.matchedName());
+            vo.setContent(result.content());
+            vo.setRenderedContent(result.content());
+            vo.setTrace(result.trace());
+            vo.setErrors(result.errors());
+            return vo;
+        }
+        if (request.getRuleTemplate() != null || (request.getWorkspace() != null && request.getWorkspace().has("ruleTemplate")) || (request.getEditorType() != null && !"BLOCKLY".equals(request.getEditorType()))) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "规则预览必须明确使用RULE_VERSIONS模式");
+        }
         BlocklyValidationResult validation;
         if (request.getWorkspace() != null) {
             Integer schemaVersion = request.getSchemaVersion() == null
@@ -374,6 +417,7 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
         vo.setTemplateId(template.getId());
         vo.setChannelType(channelType);
         vo.setRenderedContent(rendered.renderedContent());
+        vo.setContent(rendered.renderedContent());
         vo.setUsedParams(rendered.usedParams());
         vo.setWarnings(rendered.warnings());
         return vo;
@@ -621,7 +665,9 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
                 template.getSceneId(),
                 params,
                 BlocklyValidationMode.ENABLE);
-        blocklyRenderer.validateRenderable(validation.getBlocklyJson());
+        if (!RuleTemplateEngine.isRule(validation.getBlocklyJson())) {
+            blocklyRenderer.validateRenderable(validation.getBlocklyJson());
+        }
     }
 
     private Long parseTemplateId(String templateId) {

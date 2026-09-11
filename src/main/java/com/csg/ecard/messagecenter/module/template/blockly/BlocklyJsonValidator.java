@@ -7,13 +7,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import lombok.RequiredArgsConstructor;
+import com.csg.ecard.messagecenter.module.template.rule.RuleTemplateEngine;
+import com.csg.ecard.messagecenter.module.template.rule.RuleRenderResult;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
-import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -29,7 +29,6 @@ import java.util.regex.Pattern;
  * Blockly JSON 集中解析、结构校验和静态类型校验器。
  */
 @Component
-@RequiredArgsConstructor
 public class BlocklyJsonValidator {
 
     public static final int SUPPORTED_SCHEMA_VERSION = 1;
@@ -43,6 +42,25 @@ public class BlocklyJsonValidator {
     private static final Pattern CONDITIONAL_INPUT_PATTERN = Pattern.compile("^(IF|DO)(\\d+)$");
 
     private final ObjectMapper objectMapper;
+    private final RuleTemplateEngine ruleEngine;
+
+    public BlocklyJsonValidator(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+        this.ruleEngine = new RuleTemplateEngine(objectMapper);
+    }
+
+    /** 校验并构建原子保存的条件模板文档。 */
+    public JsonNode ruleEnvelope(JsonNode rule, JsonNode workspace, String templateId,
+                                 Long sceneId, Map<Long, MsgSceneParam> params) {
+        return ruleEngine.envelope(rule, workspace, templateId, sceneId, params);
+    }
+
+    /** 条件模板预览和发送使用同一规则引擎。 */
+    public RuleRenderResult renderRules(JsonNode rule, Long sceneId, Map<Long, MsgSceneParam> params,
+                                        Map<String, JsonNode> values) {
+        return ruleEngine.render(rule, sceneId, params, values);
+    }
+
 
     /**
      * 校验请求中的工作区并构造完整存储结构。
@@ -165,6 +183,7 @@ public class BlocklyJsonValidator {
         if (root == null || root.isNull() || !root.isObject()) {
             return true;
         }
+        if (RuleTemplateEngine.isRule(root)) return false;
         JsonNode topBlocks = root.path("workspace").path("blocks").path("blocks");
         JsonNode workspace = root.path("workspace");
         if (isLinkedNodeMode(workspace)) {
@@ -207,6 +226,16 @@ public class BlocklyJsonValidator {
                                                   BlocklyValidationMode mode) {
         if (root == null || !root.isObject()) {
             throw new BizException(ErrorCode.PARAM_ERROR, "Blockly JSON 根节点必须为对象");
+        }
+        if (RuleTemplateEngine.isRule(root)) {
+            JsonNode rule = root.path("ruleTemplate");
+            ruleEngine.envelope(rule, root.path("workspace"), rule.path("templateId").asText(), sceneId, params);
+            Map<Long, Long> counts = new LinkedHashMap<>();
+            collectRuleParamCounts(rule, counts);
+            return new BlocklyValidationResult(root, true, true, List.of(), counts.keySet(), counts);
+        }
+        if (root.has("editorType") && !"BLOCKLY".equals(root.path("editorType").asText())) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "未知模板editorType");
         }
         JsonNode versionNode = root.get("schemaVersion");
         if (versionNode == null || !versionNode.canConvertToInt()) {
@@ -601,7 +630,7 @@ public class BlocklyJsonValidator {
     private void validateLinkedTimeFormat(JsonNode block) {
         String format = linkedTimeFormat(block);
         try {
-            DateTimeFormatter.ofPattern(format);
+            TemplateTimeFormatter.outputFormatter(format);
         } catch (IllegalArgumentException ex) {
             throw new BizException(ErrorCode.PARAM_ERROR, "时间格式模板不合法：" + format);
         }
@@ -795,7 +824,23 @@ public class BlocklyJsonValidator {
         return StringUtils.hasText(fallbackName) ? fallbackName : "未知参数";
     }
 
+    private void collectRuleParamCounts(JsonNode node, Map<Long, Long> result) {
+        if (node.isObject()) {
+            String id = "param".equals(node.path("source").asText()) ? node.path("key").asText() : null;
+            if (node.has("paramId")) id = node.path("paramId").asText();
+            if (id != null) {
+                try { result.merge(Long.valueOf(id), 1L, Long::sum); }
+                catch (NumberFormatException ex) { throw new BizException(ErrorCode.PARAM_ERROR, "场景参数ID无效"); }
+            }
+        }
+        node.elements().forEachRemaining(child -> collectRuleParamCounts(child, result));
+    }
+
     private void collectParamCounts(JsonNode node, Map<Long, Long> result) {
+        if (RuleTemplateEngine.isRule(node)) {
+            collectRuleParamCounts(node.path("ruleTemplate"), result);
+            return;
+        }
         if (node == null || node.isNull()) {
             return;
         }

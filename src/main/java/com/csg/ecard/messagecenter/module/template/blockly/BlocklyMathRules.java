@@ -6,7 +6,7 @@ import java.math.RoundingMode;
 /**
  * Blockly 数学运算统一精度规则。
  */
-final class BlocklyMathRules {
+public final class BlocklyMathRules {
 
     /** 除法保留最多 16 位小数并使用 HALF_UP 舍入，输出时移除无意义的末尾零。 */
     static final int DIVISION_SCALE = 16;
@@ -15,7 +15,8 @@ final class BlocklyMathRules {
     private BlocklyMathRules() {
     }
 
-    static BigDecimal divide(BigDecimal dividend, BigDecimal divisor) {
+    /** 按模板统一精度执行除法。 */
+    public static BigDecimal divide(BigDecimal dividend, BigDecimal divisor) {
         return dividend.divide(divisor, DIVISION_SCALE, DIVISION_ROUNDING).stripTrailingZeros();
     }
 }

@@ -8,9 +8,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
+import java.time.DateTimeException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,8 +19,6 @@ import java.util.List;
 public class SceneParamValueValidator {
 
     private static final int REQUIRED = 1;
-    private static final DateTimeFormatter TIME_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /**
      * 按场景参数定义校验示例值，并转换为正文字符串。
@@ -77,14 +73,20 @@ public class SceneParamValueValidator {
     }
 
     private String formatTime(MsgSceneParam param, JsonNode value) {
-        if (!value.isTextual()) {
-            throw typeError(param, "格式为yyyy-MM-dd HH:mm:ss的JSON字符串");
+        if (!value.isTextual() && !value.isIntegralNumber()) {
+            throw invalidTimeError(param);
         }
         try {
-            return LocalDateTime.parse(value.textValue(), TIME_FORMATTER).format(TIME_FORMATTER);
-        } catch (DateTimeParseException ex) {
-            throw typeError(param, "格式为yyyy-MM-dd HH:mm:ss的JSON字符串");
+            return TemplateTimeFormatter.format(value.asText(),
+                    TemplateTimeFormatter.BLOCKLY_DEFAULT_PATTERN);
+        } catch (DateTimeException ex) {
+            throw invalidTimeError(param);
         }
+    }
+
+    private BizException invalidTimeError(MsgSceneParam param) {
+        return new BizException(ErrorCode.PARAM_ERROR,
+                param.getParamName() + "的值不是有效日期，请检查后重试");
     }
 
     private String formatStringArray(MsgSceneParam param, JsonNode value) {
