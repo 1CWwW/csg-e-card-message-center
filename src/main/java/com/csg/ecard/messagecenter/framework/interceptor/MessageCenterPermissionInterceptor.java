@@ -29,6 +29,7 @@ public class MessageCenterPermissionInterceptor implements HandlerInterceptor {
 
     private static final String ACCESS_TOKEN = "access-token";
     private static final String ORGANIZATION_PATH = "/api/msg/organization";
+    private static final String DO_NOT_DISTURB_PATH = "/api/msg/do-not-disturb";
     private static final String RECORD_OVERVIEW_PATH = "/api/msg/record/overview";
 
     private static final String SCENE_CODE = "EcardMsgCenterScene";
@@ -41,6 +42,7 @@ public class MessageCenterPermissionInterceptor implements HandlerInterceptor {
             new RoutePermission("/api/msg/scene", List.of(SCENE_CODE)),
             new RoutePermission("/api/msg/channel", List.of(CHANNEL_CODE)),
             new RoutePermission("/api/msg/template", List.of(TEMPLATE_CODE)),
+            new RoutePermission(DO_NOT_DISTURB_PATH, List.of(CHANNEL_CODE)),
             new RoutePermission("/api/msg/statistics", List.of(STATISTICS_CODE)),
             new RoutePermission(RECORD_OVERVIEW_PATH, List.of(RECORD_CODE, STATISTICS_CODE)),
             new RoutePermission("/api/msg/record", List.of(RECORD_CODE)),

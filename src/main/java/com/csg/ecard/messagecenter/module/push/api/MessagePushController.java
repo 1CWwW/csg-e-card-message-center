@@ -34,7 +34,8 @@ public class MessagePushController {
     @PostMapping("/sync")
     @Operation(summary = "同步推送消息",
             description = "priority为消息业务优先级，可选HIGH、NORMAL、LOW，未传默认NORMAL；"
-                    + "它不等于渠道匹配优先级，同步推送不经过RabbitMQ")
+                    + "它不等于渠道匹配优先级，同步推送不经过RabbitMQ；"
+                    + "命中用户、单位或全局免打扰规则时返回PENDING并延后发送")
     public CommonResult<SyncPushVO> pushSync(@RequestBody @Valid SyncPushDTO request) {
         try {
             return CommonResult.success(messagePushService.pushSync(request));
@@ -50,7 +51,8 @@ public class MessagePushController {
     }
 
     @PostMapping("/sync/mass")
-    @Operation(summary = "同步群发消息", description = "同一场景参数渲染同一内容，发送给多个接收人")
+    @Operation(summary = "同步群发消息",
+            description = "同一场景参数渲染同一内容，发送给多个接收人；每个接收人分别匹配免打扰规则")
     public CommonResult<SyncPushVO> pushMass(@RequestBody @Valid MassPushDTO request) {
         try {
             return CommonResult.success(messagePushService.pushMass(request));
@@ -66,7 +68,8 @@ public class MessagePushController {
     }
 
     @PostMapping("/sync/group")
-    @Operation(summary = "同步组发消息", description = "同一批次内多条消息可分别携带不同场景参数和接收人")
+    @Operation(summary = "同步组发消息",
+            description = "同一批次内多条消息可分别携带不同场景参数和接收人；每个接收人分别匹配免打扰规则")
     public CommonResult<SyncPushVO> pushGroup(@RequestBody @Valid GroupPushDTO request) {
         try {
             return CommonResult.success(messagePushService.pushGroup(request));
@@ -85,7 +88,8 @@ public class MessagePushController {
     @Operation(summary = "异步推送消息",
             description = "priority为消息业务优先级，可选HIGH、NORMAL、LOW，未传默认NORMAL；"
                     + "异步推送会映射为RabbitMQ主队列优先级，但不会抢占已经开始处理的消息；"
-                    + "自动重试保持原优先级，且priority不参与渠道匹配")
+                    + "自动重试保持原优先级，且priority不参与渠道匹配；"
+                    + "异步消费和自动重试同样受免打扰规则限制")
     public CommonResult<AsyncPushVO> pushAsync(@RequestBody @Valid SyncPushDTO request) {
         try {
             return CommonResult.success(messagePushService.pushAsync(request));

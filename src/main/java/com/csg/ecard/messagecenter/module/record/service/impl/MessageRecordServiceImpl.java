@@ -12,6 +12,8 @@ import com.csg.ecard.messagecenter.common.utils.RedisUtil;
 import com.csg.ecard.messagecenter.framework.context.CurrentUserContext;
 import com.csg.ecard.messagecenter.module.channel.entity.MsgChannel;
 import com.csg.ecard.messagecenter.module.channel.mapper.MsgChannelMapper;
+import com.csg.ecard.messagecenter.module.dnd.service.DoNotDisturbDecision;
+import com.csg.ecard.messagecenter.module.dnd.service.DoNotDisturbPolicyService;
 import com.csg.ecard.messagecenter.module.push.dto.EmailFileDTO;
 import com.csg.ecard.messagecenter.module.push.dto.SyncPushDTO;
 import com.csg.ecard.messagecenter.module.push.entity.MsgRecord;
@@ -80,6 +82,7 @@ public class MessageRecordServiceImpl implements MessageRecordService {
     private final MsgTemplateMapper msgTemplateMapper;
     private final MsgChannelMapper msgChannelMapper;
     private final ChannelSenderDispatcher channelSenderDispatcher;
+    private final DoNotDisturbPolicyService doNotDisturbPolicyService;
     private final RedisUtil redisUtil;
     private final MessageRecordAssembler assembler;
     private final ObjectMapper objectMapper;
@@ -190,7 +193,12 @@ public class MessageRecordServiceImpl implements MessageRecordService {
             if (channel == null) {
                 throw new BizException(ErrorCode.DATA_NOT_FOUND, "原消息渠道不存在，无法重发");
             }
-            return executeResend(record, channel);
+            DoNotDisturbDecision decision = doNotDisturbPolicyService.evaluate(
+                    doNotDisturbPolicyService.loadSnapshot(),
+                    record.getElinkUserId(),
+                    effectiveUnitId(record),
+                    null);
+            return executeResend(record, channel, decision);
         } finally {
             redisUtil.delete(lockKey);
         }
@@ -217,7 +225,9 @@ public class MessageRecordServiceImpl implements MessageRecordService {
         return result.getRecords();
     }
 
-    private MessageRecordResendVO executeResend(MsgRecord record, MsgChannel channel) {
+    private MessageRecordResendVO executeResend(MsgRecord record,
+                                                MsgChannel channel,
+                                                DoNotDisturbDecision doNotDisturbDecision) {
         LocalDateTime startedAt = LocalDateTime.now();
         int nextResendNo = assembler.normalizeResendCount(record.getResendCount()) + 1;
         MsgRecordResendLog log = new MsgRecordResendLog();
@@ -225,6 +235,10 @@ public class MessageRecordServiceImpl implements MessageRecordService {
         log.setResendNo(nextResendNo);
         log.setStartTime(startedAt);
         log.setOperatorId(CurrentUserContext.getUserIdOrDefault(CommonConstants.DEFAULT_OPERATOR));
+
+        if (doNotDisturbDecision.delayed()) {
+            return scheduleResend(record, log, nextResendNo, doNotDisturbDecision);
+        }
 
         LocalDateTime completedAt;
         ChannelSendResult sendResult;
@@ -285,6 +299,27 @@ public class MessageRecordServiceImpl implements MessageRecordService {
         updateResendRecord(record);
         saveResendLog(log);
 
+        return toResendVO(record, success);
+    }
+
+    private MessageRecordResendVO scheduleResend(MsgRecord record,
+                                                 MsgRecordResendLog log,
+                                                 int nextResendNo,
+                                                 DoNotDisturbDecision decision) {
+        record.setSendStatus(SendStatus.PENDING.name());
+        record.setScheduleTime(decision.effectiveScheduleTime());
+        record.setErrorMsg(null);
+        record.setErrorStack(null);
+        record.setSendTime(null);
+        record.setResendCount(nextResendNo);
+        record.setMaxResendCount(assembler.normalizeMaxResendCount(record.getMaxResendCount()));
+        log.setSendStatus(SendStatus.PENDING.name());
+        updateResendRecord(record);
+        saveResendLog(log);
+        return toResendVO(record, false);
+    }
+
+    private MessageRecordResendVO toResendVO(MsgRecord record, boolean success) {
         MessageRecordResendVO vo = new MessageRecordResendVO();
         vo.setId(record.getId());
         vo.setMsgId(record.getMsgId());
@@ -293,6 +328,7 @@ public class MessageRecordServiceImpl implements MessageRecordService {
         vo.setResendCount(record.getResendCount());
         vo.setMaxResendCount(record.getMaxResendCount());
         vo.setErrorMsg(record.getErrorMsg());
+        vo.setScheduleTime(record.getScheduleTime());
         vo.setSendTime(record.getSendTime());
         vo.setSuccess(success);
         return vo;
@@ -497,6 +533,12 @@ public class MessageRecordServiceImpl implements MessageRecordService {
 
     private String trimToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private String effectiveUnitId(MsgRecord record) {
+        return StringUtils.hasText(record.getReceiveCorpId())
+                ? record.getReceiveCorpId().trim()
+                : record.getUserOrgId();
     }
 
     private long value(Long value) {

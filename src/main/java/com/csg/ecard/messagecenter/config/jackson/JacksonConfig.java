@@ -3,12 +3,15 @@ package com.csg.ecard.messagecenter.config.jackson;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.datatype.jsr310.deser.LocalDateTimeDeserializer;
+import com.fasterxml.jackson.datatype.jsr310.deser.LocalTimeDeserializer;
 import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer;
+import com.fasterxml.jackson.datatype.jsr310.ser.LocalTimeSerializer;
 import org.springframework.boot.autoconfigure.jackson.Jackson2ObjectMapperBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 
 /**
@@ -20,6 +23,7 @@ import java.time.format.DateTimeFormatter;
 public class JacksonConfig {
 
     private static final String DATE_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss";
+    private static final String TIME_PATTERN = "HH:mm:ss";
 
     /**
      * 自定义全局 ObjectMapper 构建规则。
@@ -28,10 +32,13 @@ public class JacksonConfig {
      */
     @Bean
     public Jackson2ObjectMapperBuilderCustomizer jacksonCustomizer() {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(DATE_TIME_PATTERN);
+        DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern(DATE_TIME_PATTERN);
+        DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern(TIME_PATTERN);
         SimpleModule module = new SimpleModule();
-        module.addSerializer(LocalDateTime.class, new LocalDateTimeSerializer(formatter));
-        module.addDeserializer(LocalDateTime.class, new LocalDateTimeDeserializer(formatter));
+        module.addSerializer(LocalDateTime.class, new LocalDateTimeSerializer(dateTimeFormatter));
+        module.addDeserializer(LocalDateTime.class, new LocalDateTimeDeserializer(dateTimeFormatter));
+        module.addSerializer(LocalTime.class, new LocalTimeSerializer(timeFormatter));
+        module.addDeserializer(LocalTime.class, new LocalTimeDeserializer(timeFormatter));
 
         return builder -> builder
                 .modules(module)

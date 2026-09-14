@@ -16,6 +16,9 @@ import com.csg.ecard.messagecenter.infrastructure.employee.EmployeeInfoProvider;
 import com.csg.ecard.messagecenter.module.channel.entity.MsgChannel;
 import com.csg.ecard.messagecenter.module.channel.mapper.MsgChannelMapper;
 import com.csg.ecard.messagecenter.module.channel.mapper.MsgChannelUnitMapper;
+import com.csg.ecard.messagecenter.module.dnd.service.DoNotDisturbDecision;
+import com.csg.ecard.messagecenter.module.dnd.service.DoNotDisturbPolicyService;
+import com.csg.ecard.messagecenter.module.dnd.service.DoNotDisturbPolicySnapshot;
 import com.csg.ecard.messagecenter.module.push.dto.EmailFileDTO;
 import com.csg.ecard.messagecenter.module.push.dto.GroupPushDTO;
 import com.csg.ecard.messagecenter.module.push.dto.GroupPushItemDTO;
@@ -108,6 +111,7 @@ public class MessagePushServiceImpl implements MessagePushService {
     private final ObjectMapper objectMapper;
     private final EmployeeInfoProvider employeeInfoProvider;
     private final MessageRecordProperties messageRecordProperties;
+    private final DoNotDisturbPolicyService doNotDisturbPolicyService;
 
     private static final TypeReference<List<EmailFileDTO>> EMAIL_FILE_LIST_TYPE = new TypeReference<>() {
     };
@@ -116,6 +120,7 @@ public class MessagePushServiceImpl implements MessagePushService {
     @Transactional(rollbackFor = Exception.class)
     public SyncPushVO pushSync(SyncPushDTO request) {
         normalize(request);
+        applyDoNotDisturbPolicy(request, doNotDisturbPolicyService.loadSnapshot());
         requireEnabledScene(request.getSceneCode());
 
         String pcId = messageIdGenerator.nextId();
@@ -158,8 +163,10 @@ public class MessagePushServiceImpl implements MessagePushService {
         String pcId = acquired.pcId();
         try {
             List<ChannelResultVO> results = new ArrayList<>();
+            DoNotDisturbPolicySnapshot policySnapshot = doNotDisturbPolicyService.loadSnapshot();
             for (SyncPushDTO item : expandMassRequests(safeRequest)) {
                 normalize(item);
+                applyDoNotDisturbPolicy(item, policySnapshot);
                 CoreExecutionResult executed = execute(
                         pcId, item, MessageCallType.SYNC, 0, List.of(), false, true);
                 results.addAll(executed.response().getChannelResults());
@@ -187,8 +194,10 @@ public class MessagePushServiceImpl implements MessagePushService {
         String pcId = acquired.pcId();
         try {
             List<ChannelResultVO> results = new ArrayList<>();
+            DoNotDisturbPolicySnapshot policySnapshot = doNotDisturbPolicyService.loadSnapshot();
             for (SyncPushDTO item : expandGroupRequests(safeRequest)) {
                 normalize(item);
+                applyDoNotDisturbPolicy(item, policySnapshot);
                 CoreExecutionResult executed = execute(
                         pcId, item, MessageCallType.SYNC, 0, List.of(), false, true);
                 results.addAll(executed.response().getChannelResults());
@@ -600,6 +609,7 @@ public class MessagePushServiceImpl implements MessagePushService {
         message.setPriority(priority);
         request.setPriority(priority);
         normalize(request);
+        applyDoNotDisturbPolicy(request, doNotDisturbPolicyService.loadSnapshot());
         CoreExecutionResult executed = execute(
                 message.getMsgId(),
                 request,
@@ -1684,6 +1694,18 @@ public class MessagePushServiceImpl implements MessagePushService {
         request.setFile(request.getFile() == null ? List.of() : request.getFile());
         if (request.getPriority() == null) {
             request.setPriority(MessagePriority.NORMAL);
+        }
+    }
+
+    private void applyDoNotDisturbPolicy(SyncPushDTO request,
+                                         DoNotDisturbPolicySnapshot policySnapshot) {
+        String unitId = firstText(request.getReceiveCorpId(), request.getUserOrgId());
+        DoNotDisturbDecision decision = doNotDisturbPolicyService.evaluate(
+                policySnapshot, request.getElinkUserId(), unitId, request.getScheduleTime());
+        request.setScheduleTime(decision.effectiveScheduleTime());
+        if (decision.delayed()) {
+            log.info("Message delayed by do-not-disturb rule. sceneCode={}, ruleId={}, scheduleTime={}",
+                    request.getSceneCode(), decision.ruleId(), decision.effectiveScheduleTime());
         }
     }
 

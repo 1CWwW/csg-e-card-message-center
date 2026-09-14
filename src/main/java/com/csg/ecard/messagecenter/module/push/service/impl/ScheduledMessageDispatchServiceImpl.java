@@ -8,6 +8,9 @@ import com.csg.ecard.messagecenter.common.enums.MessagePriority;
 import com.csg.ecard.messagecenter.common.utils.ExceptionStackTraceUtils;
 import com.csg.ecard.messagecenter.module.channel.entity.MsgChannel;
 import com.csg.ecard.messagecenter.module.channel.mapper.MsgChannelMapper;
+import com.csg.ecard.messagecenter.module.dnd.service.DoNotDisturbDecision;
+import com.csg.ecard.messagecenter.module.dnd.service.DoNotDisturbPolicyService;
+import com.csg.ecard.messagecenter.module.dnd.service.DoNotDisturbPolicySnapshot;
 import com.csg.ecard.messagecenter.module.push.dto.EmailFileDTO;
 import com.csg.ecard.messagecenter.module.push.dto.SyncPushDTO;
 import com.csg.ecard.messagecenter.module.push.entity.MsgRecord;
@@ -19,6 +22,8 @@ import com.csg.ecard.messagecenter.module.push.sender.ChannelSenderDispatcher;
 import com.csg.ecard.messagecenter.module.push.sender.MessageSendInfo;
 import com.csg.ecard.messagecenter.module.push.service.ScheduledMessageDispatchService;
 import com.csg.ecard.messagecenter.module.push.vo.ScheduledDispatchResultVO;
+import com.csg.ecard.messagecenter.module.record.entity.MsgRecordResendLog;
+import com.csg.ecard.messagecenter.module.record.mapper.MsgRecordResendLogMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -51,8 +56,10 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
 
     private final MsgRecordMapper msgRecordMapper;
     private final MsgChannelMapper msgChannelMapper;
+    private final MsgRecordResendLogMapper resendLogMapper;
     private final ChannelSenderDispatcher channelSenderDispatcher;
     private final ObjectMapper objectMapper;
+    private final DoNotDisturbPolicyService doNotDisturbPolicyService;
 
     @Value("${app.message-schedule.batch-size:100}")
     private int batchSize;
@@ -68,9 +75,24 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
 
         ScheduledDispatchResultVO result = new ScheduledDispatchResultVO();
         result.setScannedCount(records.getRecords().size());
+        if (records.getRecords().isEmpty()) {
+            return result;
+        }
+        DoNotDisturbPolicySnapshot policySnapshot = doNotDisturbPolicyService.loadSnapshot();
+        Map<Long, MsgRecordResendLog> pendingResendLogs = loadPendingResendLogs(records.getRecords());
         List<MsgRecord> inAppRecords = new ArrayList<>();
         List<MsgRecord> emailRecords = new ArrayList<>();
         for (MsgRecord record : records.getRecords()) {
+            DoNotDisturbDecision decision = doNotDisturbPolicyService.evaluate(
+                    policySnapshot,
+                    record.getElinkUserId(),
+                    effectiveUnitId(record),
+                    null);
+            if (decision.delayed()) {
+                postpone(record, decision);
+                result.setSkippedCount(result.getSkippedCount() + 1);
+                continue;
+            }
             if (externalMsgType(ChannelType.IN_APP).equals(record.getMsgType())) {
                 inAppRecords.add(record);
                 continue;
@@ -79,7 +101,7 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
                 emailRecords.add(record);
                 continue;
             }
-            DispatchOutcome outcome = dispatchOne(record);
+            DispatchOutcome outcome = dispatchOne(record, pendingResendLogs);
             switch (outcome) {
                 case SENT -> result.setSentCount(result.getSentCount() + 1);
                 case FAILED -> result.setFailedCount(result.getFailedCount() + 1);
@@ -88,7 +110,7 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
         }
         for (int start = 0; start < inAppRecords.size(); start += 100) {
             List<MsgRecord> batch = inAppRecords.subList(start, Math.min(start + 100, inAppRecords.size()));
-            BatchDispatchCount count = dispatchInAppBatch(batch);
+            BatchDispatchCount count = dispatchInAppBatch(batch, pendingResendLogs);
             result.setSentCount(result.getSentCount() + count.sentCount());
             result.setFailedCount(result.getFailedCount() + count.failedCount());
             result.setSkippedCount(result.getSkippedCount() + count.skippedCount());
@@ -96,7 +118,7 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
         Map<String, List<MsgRecord>> emailGroups = emailRecords.stream()
                 .collect(Collectors.groupingBy(this::emailGroupKey, LinkedHashMap::new, Collectors.toList()));
         for (List<MsgRecord> batch : emailGroups.values()) {
-            BatchDispatchCount count = dispatchEmailBatch(batch);
+            BatchDispatchCount count = dispatchEmailBatch(batch, pendingResendLogs);
             result.setSentCount(result.getSentCount() + count.sentCount());
             result.setFailedCount(result.getFailedCount() + count.failedCount());
             result.setSkippedCount(result.getSkippedCount() + count.skippedCount());
@@ -104,7 +126,19 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
         return result;
     }
 
-    private BatchDispatchCount dispatchInAppBatch(List<MsgRecord> records) {
+    private void postpone(MsgRecord record, DoNotDisturbDecision decision) {
+        int updated = msgRecordMapper.update(null, new LambdaUpdateWrapper<MsgRecord>()
+                .eq(MsgRecord::getId, record.getId())
+                .eq(MsgRecord::getSendStatus, SendStatus.PENDING.name())
+                .set(MsgRecord::getScheduleTime, decision.effectiveScheduleTime()));
+        if (updated > 0) {
+            log.info("Scheduled message postponed by do-not-disturb rule. recordId={}, ruleId={}, scheduleTime={}",
+                    record.getId(), decision.ruleId(), decision.effectiveScheduleTime());
+        }
+    }
+
+    private BatchDispatchCount dispatchInAppBatch(List<MsgRecord> records,
+                                                  Map<Long, MsgRecordResendLog> pendingResendLogs) {
         List<MsgRecord> claimedRecords = new ArrayList<>();
         List<ChannelSendRequest> requests = new ArrayList<>();
         int failedCount = 0;
@@ -128,7 +162,8 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
                 claimedRecords.add(sendingRecord);
             } catch (RuntimeException ex) {
                 failedCount++;
-                markCompleted(sendingRecord, ChannelSendResult.failedNonRetryable(messageOf(ex)), ex);
+                markCompleted(sendingRecord, ChannelSendResult.failedNonRetryable(messageOf(ex)), ex,
+                        pendingResendLogs);
             }
         }
         if (requests.isEmpty()) {
@@ -144,7 +179,7 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
             technicalError = ex;
         }
         for (MsgRecord record : claimedRecords) {
-            markCompleted(record, sendResult, technicalError);
+            markCompleted(record, sendResult, technicalError, pendingResendLogs);
         }
         if (sendResult.success()) {
             return new BatchDispatchCount(claimedRecords.size(), failedCount, skippedCount);
@@ -152,7 +187,8 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
         return new BatchDispatchCount(0, failedCount + claimedRecords.size(), skippedCount);
     }
 
-    private BatchDispatchCount dispatchEmailBatch(List<MsgRecord> records) {
+    private BatchDispatchCount dispatchEmailBatch(List<MsgRecord> records,
+                                                  Map<Long, MsgRecordResendLog> pendingResendLogs) {
         List<MsgRecord> claimedRecords = new ArrayList<>();
         List<ChannelSendRequest> requests = new ArrayList<>();
         int failedCount = 0;
@@ -176,7 +212,8 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
                 claimedRecords.add(sendingRecord);
             } catch (RuntimeException ex) {
                 failedCount++;
-                markCompleted(sendingRecord, ChannelSendResult.failedNonRetryable(messageOf(ex)), ex);
+                markCompleted(sendingRecord, ChannelSendResult.failedNonRetryable(messageOf(ex)), ex,
+                        pendingResendLogs);
             }
         }
         if (requests.isEmpty()) {
@@ -192,7 +229,7 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
             technicalError = ex;
         }
         for (MsgRecord record : claimedRecords) {
-            markCompleted(record, sendResult, technicalError);
+            markCompleted(record, sendResult, technicalError, pendingResendLogs);
         }
         if (sendResult.success()) {
             return new BatchDispatchCount(claimedRecords.size(), failedCount, skippedCount);
@@ -208,7 +245,8 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
     }
 
     @Transactional(rollbackFor = Exception.class)
-    protected DispatchOutcome dispatchOne(MsgRecord record) {
+    protected DispatchOutcome dispatchOne(MsgRecord record,
+                                          Map<Long, MsgRecordResendLog> pendingResendLogs) {
         if (!claim(record.getId())) {
             return DispatchOutcome.SKIPPED;
         }
@@ -234,17 +272,45 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
         }
 
         boolean success = sendResult.success();
-        markCompleted(sendingRecord, sendResult, technicalError);
+        markCompleted(sendingRecord, sendResult, technicalError, pendingResendLogs);
         return success ? DispatchOutcome.SENT : DispatchOutcome.FAILED;
     }
 
-    private void markCompleted(MsgRecord record, ChannelSendResult sendResult, Throwable technicalError) {
+    private void markCompleted(MsgRecord record,
+                               ChannelSendResult sendResult,
+                               Throwable technicalError,
+                               Map<Long, MsgRecordResendLog> pendingResendLogs) {
         boolean success = sendResult.success();
+        LocalDateTime completedAt = LocalDateTime.now();
         record.setSendStatus(success ? SendStatus.SUCCESS.name() : SendStatus.FAILED.name());
         record.setErrorMsg(success ? null : defaultError(sendResult.errorMsg()));
         record.setErrorStack(success ? null : ExceptionStackTraceUtils.getStackTrace(technicalError));
-        record.setSendTime(LocalDateTime.now());
+        record.setSendTime(completedAt);
         updateRecord(record);
+        completePendingResendLog(record, completedAt, pendingResendLogs);
+    }
+
+    private void completePendingResendLog(MsgRecord record,
+                                          LocalDateTime completedAt,
+                                          Map<Long, MsgRecordResendLog> pendingResendLogs) {
+        MsgRecordResendLog resendLog = pendingResendLogs.remove(record.getId());
+        if (resendLog == null) {
+            return;
+        }
+        resendLog.setSendStatus(record.getSendStatus());
+        resendLog.setErrorMsg(record.getErrorMsg());
+        resendLog.setErrorStack(record.getErrorStack());
+        resendLog.setEndTime(completedAt);
+        resendLogMapper.updateById(resendLog);
+    }
+
+    private Map<Long, MsgRecordResendLog> loadPendingResendLogs(List<MsgRecord> records) {
+        List<Long> recordIds = records.stream().map(MsgRecord::getId).toList();
+        Map<Long, MsgRecordResendLog> result = new LinkedHashMap<>();
+        for (MsgRecordResendLog resendLog : resendLogMapper.selectPendingByRecordIds(recordIds)) {
+            result.putIfAbsent(resendLog.getRecordId(), resendLog);
+        }
+        return result;
     }
 
     private boolean claim(Long id) {
@@ -388,6 +454,12 @@ public class ScheduledMessageDispatchServiceImpl implements ScheduledMessageDisp
 
     private String defaultError(String errorMsg) {
         return StringUtils.hasText(errorMsg) ? errorMsg : "渠道发送失败";
+    }
+
+    private String effectiveUnitId(MsgRecord record) {
+        return StringUtils.hasText(record.getReceiveCorpId())
+                ? record.getReceiveCorpId().trim()
+                : record.getUserOrgId();
     }
 
     private enum DispatchOutcome {

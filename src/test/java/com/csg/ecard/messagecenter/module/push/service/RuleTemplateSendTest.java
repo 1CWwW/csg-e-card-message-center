@@ -7,6 +7,8 @@ import com.csg.ecard.messagecenter.common.enums.MessageCallType;
 import com.csg.ecard.messagecenter.config.message.MessageRecordProperties;
 import com.csg.ecard.messagecenter.module.channel.entity.MsgChannel;
 import com.csg.ecard.messagecenter.module.channel.mapper.MsgChannelMapper;
+import com.csg.ecard.messagecenter.module.dnd.service.DoNotDisturbDecision;
+import com.csg.ecard.messagecenter.module.dnd.service.DoNotDisturbPolicyService;
 import com.csg.ecard.messagecenter.module.push.dto.SyncPushDTO;
 import com.csg.ecard.messagecenter.module.push.entity.MsgRecord;
 import com.csg.ecard.messagecenter.module.push.enums.SendStatus;
@@ -62,6 +64,8 @@ class RuleTemplateSendTest {
         MsgChannel channel = new MsgChannel(); channel.setId(20L); channel.setChannelType("SMS"); channel.setStatus(1);
         when(dependency(MsgChannelMapper.class).selectEnabledDefaultCandidates("SMS")).thenReturn(List.of(channel));
         when(dependency(MessageIdGenerator.class).nextId()).thenReturn("test-message-id");
+        when(dependency(DoNotDisturbPolicyService.class).evaluate(any(), any(), any(), any()))
+                .thenReturn(new DoNotDisturbDecision(false, null, null));
         when(dependency(ChannelSenderDispatcher.class).hasSender("SMS")).thenReturn(true);
         when(dependency(ChannelSenderDispatcher.class).dispatch(eq("SMS"), any())).thenReturn(ChannelSendResult.succeeded());
     }

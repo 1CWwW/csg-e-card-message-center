@@ -108,7 +108,8 @@ public class MessageRecordController {
     @PostMapping("/{id}/resend")
     @Operation(summary = "失败记录手工重发",
             description = "仅FAILED记录可重发；只发送当前记录对应渠道，使用历史记录原始完整messageContent，"
-                    + "不重新渲染模板且不进入RabbitMQ自动重试；重发保持原消息业务优先级")
+                    + "不重新渲染模板且不进入RabbitMQ自动重试；重发保持原消息业务优先级；"
+                    + "命中免打扰规则时转为PENDING并在允许时间发送")
     public CommonResult<MessageRecordResendVO> resend(
             @Parameter(description = "消息记录ID，对外为字符串") @PathVariable Long id) {
         return CommonResult.success(messageRecordService.resend(id));

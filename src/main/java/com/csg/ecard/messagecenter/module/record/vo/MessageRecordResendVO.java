@@ -24,6 +24,8 @@ public class MessageRecordResendVO {
     private Integer resendCount;
     private Integer maxResendCount;
     private String errorMsg;
+    @Schema(description = "命中免打扰规则后的预计发送时间")
+    private LocalDateTime scheduleTime;
     private LocalDateTime sendTime;
     private boolean success;
 }

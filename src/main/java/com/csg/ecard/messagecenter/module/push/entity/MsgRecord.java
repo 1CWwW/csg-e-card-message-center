@@ -62,5 +62,6 @@ public class MsgRecord extends BaseEntity {
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String errorStack;
 
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private LocalDateTime sendTime;
 }
