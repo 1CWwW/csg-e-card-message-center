@@ -11,6 +11,7 @@ import com.csg.ecard.messagecenter.module.dnd.service.DoNotDisturbDecision;
 import com.csg.ecard.messagecenter.module.dnd.service.DoNotDisturbPolicyService;
 import com.csg.ecard.messagecenter.module.push.dto.SyncPushDTO;
 import com.csg.ecard.messagecenter.module.push.entity.MsgRecord;
+import com.csg.ecard.messagecenter.module.push.enums.PushStatus;
 import com.csg.ecard.messagecenter.module.push.enums.SendStatus;
 import com.csg.ecard.messagecenter.module.push.mapper.MsgRecordMapper;
 import com.csg.ecard.messagecenter.module.push.mq.AsyncPushMessage;
@@ -161,6 +162,48 @@ class RuleTemplateSendTest {
         ArgumentCaptor<ChannelSendRequest> sent = ArgumentCaptor.forClass(ChannelSendRequest.class);
         verify(dependency(ChannelSenderDispatcher.class)).dispatch(eq("SMS"), sent.capture());
         assertThat(sent.getValue().messageContent()).isEqualTo(previewContent);
+    }
+    @Test void skipFallbackPreviewAndDeliveryFinishNormallyWithoutRecordOrRetry() {
+        ObjectNode rule = draft();
+        ((ObjectNode) rule.path("versions").get(0)).set("condition", group("all",
+                condition("skip-condition", "param", "1", "NUMBER", "eq", "1")));
+        ObjectNode fallback = (ObjectNode) rule.path("fallback");
+        fallback.put("action", "SKIP");
+        fallback.remove("content");
+        setRule(rule);
+
+        TemplatePreviewDTO preview = new TemplatePreviewDTO();
+        preview.setTemplateId("10");
+        preview.setEditorType("RULE_VERSIONS");
+        preview.setValues(Map.of("p1", MAPPER.valueToTree(0)));
+        var previewResult = new com.csg.ecard.messagecenter.module.template.service.impl.MsgTemplateServiceImpl(
+                dependency(MsgTemplateMapper.class),
+                dependency(com.csg.ecard.messagecenter.module.template.mapper.MsgTemplateUnitMapper.class),
+                dependency(MsgSceneMapper.class), dependency(MsgSceneParamMapper.class), validator,
+                new BlocklyRenderer(new SceneParamValueValidator())).preview(preview);
+        assertThat(previewResult.isSkipSend()).isTrue();
+        assertThat(previewResult.getContent()).isEmpty();
+        assertThat(previewResult.getRenderedContent()).isEmpty();
+        assertThat(previewResult.getWarnings())
+                .containsExactly(com.csg.ecard.messagecenter.module.template.rule.RuleTemplateEngine.SKIP_SEND_MESSAGE);
+
+        SyncPushDTO request = request(Map.of("p1", 0));
+        var response = service.pushSync(request);
+        assertThat(response.getStatus()).isEqualTo(PushStatus.SUCCESS);
+        assertThat(response.getChannelResults()).singleElement().satisfies(result -> {
+            assertThat(result.getStatus()).isEqualTo(SendStatus.SUCCESS);
+            assertThat(result.getMessageContent()).isEmpty();
+            assertThat(result.getResultMsg())
+                    .isEqualTo(com.csg.ecard.messagecenter.module.template.rule.RuleTemplateEngine.SKIP_SEND_MESSAGE);
+        });
+
+        AsyncPushMessage retry = new AsyncPushMessage("skip-retry", request, MessageCallType.ASYNC);
+        retry.setRetryCount(1);
+        retry.setPendingTemplateIds(List.of(10L));
+        assertThat(service.consumeAsync(retry).requiresRetry()).isFalse();
+        verify(dependency(ChannelSenderDispatcher.class), never()).dispatch(anyString(), any());
+        verify(dependency(MsgRecordMapper.class), never()).insert(any(MsgRecord.class));
+        verify(dependency(MsgRecordMapper.class), never()).updateById(any(MsgRecord.class));
     }
     @Test void conversionFailureRecordsFailureWithoutDispatchingPartialMessage() {
         ObjectNode rule = draft(); ((ObjectNode)rule.path("versions").get(0)).set("content", content("prefix{{n}}", binding("n","param","2","NUMBER","money",2))); setRule(rule);

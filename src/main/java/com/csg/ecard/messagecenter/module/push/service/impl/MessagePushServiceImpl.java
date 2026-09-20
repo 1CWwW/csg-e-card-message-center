@@ -918,6 +918,12 @@ public class MessagePushServiceImpl implements MessagePushService {
                         throw new BizException(ErrorCode.PARAM_ERROR, String.join("；", rendered.errors()));
                     }
                     result.setMessageContent(rendered.content());
+                    if (rendered.skipSend()) {
+                        result.setStatus(SendStatus.SUCCESS);
+                        result.setResultCode(SendStatus.SUCCESS.name());
+                        result.setResultMsg(com.csg.ecard.messagecenter.module.template.rule.RuleTemplateEngine.SKIP_SEND_MESSAGE);
+                        return new TemplateExecutionResult(result, false);
+                    }
                 } else {
                     validateSceneParams(new ArrayList<>(paramMap.values()), safeSceneParams(request.getSceneParams()), true);
                     BlocklyRenderResult rendered = blocklyRenderer.render(

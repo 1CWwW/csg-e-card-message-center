@@ -29,6 +29,7 @@ public final class RuleTemplateEngine {
     public static final int MAX_LISTS = 100;
     public static final int MAX_ITEMS = 1000;
     public static final int MAX_CALCULATIONS = 100;
+    public static final String SKIP_SEND_MESSAGE = "所有条件分支均未命中，本次不发送";
     private static final Pattern PATH = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*");
     private static final Pattern TOKEN = Pattern.compile("\\{\\{([^{}\\s]+)}}");
     private static final Set<String> FORBIDDEN = Set.of("__proto__", "prototype", "constructor", "class");
@@ -103,6 +104,7 @@ public final class RuleTemplateEngine {
         unique(fallback, "fallback", ids);
         text(fallback, "name", "fallback", false);
         check(!fallback.has("condition"), "fallback.condition", "默认分支不能有条件");
+        fallbackAction(fallback);
         content(fallback.path("content"), "fallback.content", null, sceneId, params, listMap, ids);
     }
 
@@ -297,7 +299,13 @@ public final class RuleTemplateEngine {
             }
             JsonNode fallback = rule.path("fallback");
             trace.add(trace(fallback, selected == null ? "matched" : "skipped",
-                    List.of(selected == null ? "所有普通分支未命中" : "前序分支已命中，未执行")));
+                    List.of(selected == null && "SKIP".equals(fallbackAction(fallback))
+                            ? SKIP_SEND_MESSAGE
+                            : selected == null ? "所有普通分支未命中" : "前序分支已命中，未执行")));
+            if (selected == null && "SKIP".equals(fallbackAction(fallback))) {
+                return new RuleRenderResult(fallback.path("id").asText(), fallback.path("name").asText(),
+                        "", true, trace, List.of());
+            }
             if (selected == null) selected = fallback;
             String output = renderContent(selected.path("content"), null, context, "分支[" + selected.path("id").asText() + "]");
             if (!context.listReasons.isEmpty()) {
@@ -310,10 +318,21 @@ public final class RuleTemplateEngine {
                     }
                 }
             }
-            return new RuleRenderResult(selected.path("id").asText(), selected.path("name").asText(), output, trace, List.of());
+            return new RuleRenderResult(selected.path("id").asText(), selected.path("name").asText(),
+                    output, false, trace, List.of());
         } catch (BizException ex) {
-            return new RuleRenderResult(null, null, "", trace, List.of(ex.getMessage()));
+            return new RuleRenderResult(null, null, "", false, trace, List.of(ex.getMessage()));
         }
+    }
+
+    private String fallbackAction(JsonNode fallback) {
+        JsonNode action = fallback.get("action");
+        if (action == null || action.isNull()) {
+            return "SEND";
+        }
+        check(action.isTextual() && Set.of("SEND", "SKIP").contains(action.textValue()),
+                "fallback.action", "必须为SEND或SKIP");
+        return action.textValue();
     }
 
     private RuleRenderResult.Trace trace(JsonNode v, String state, List<String> reasons) {
@@ -592,7 +611,7 @@ public final class RuleTemplateEngine {
     private JsonNode normalizeRule(JsonNode rule) {
         check(rule != null && rule.isObject(), "ruleTemplate", "必须为对象");
         JsonNode normalized = rule.deepCopy();
-        normalizeContent(normalized.path("fallback").path("content"));
+        normalizeFallback(normalized.path("fallback"));
         normalized.path("versions").forEach(version -> {
             normalizeGroup(version.path("condition"));
             normalizeContent(version.path("content"));
@@ -602,6 +621,34 @@ public final class RuleTemplateEngine {
             normalizeContent(list.path("content"));
         });
         return normalized;
+    }
+
+    private void normalizeFallback(JsonNode fallback) {
+        if (!fallback.isObject()) {
+            return;
+        }
+        var object = (com.fasterxml.jackson.databind.node.ObjectNode) fallback;
+        JsonNode action = fallback.get("action");
+        if (action == null || action.isNull()) {
+            object.put("action", "SEND");
+            action = fallback.get("action");
+        }
+        if (action != null && action.isTextual() && "SKIP".equals(action.textValue())) {
+            JsonNode content = fallback.get("content");
+            if (content == null || content.isNull()) {
+                content = object.putObject("content");
+            }
+            if (content.isObject()) {
+                var contentObject = (com.fasterxml.jackson.databind.node.ObjectNode) content;
+                if (!content.has("text")) {
+                    contentObject.put("text", "");
+                }
+                if (!content.has("bindings")) {
+                    contentObject.putArray("bindings");
+                }
+            }
+        }
+        normalizeContent(fallback.path("content"));
     }
 
     private void normalizeGroup(JsonNode group) {

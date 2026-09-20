@@ -29,6 +29,8 @@ public class TemplatePreviewVO {
     private List<String> warnings = Collections.emptyList();
     private String matchedId;
     private String matchedName;
+    @Schema(description = "本次预览是否按默认分支配置跳过发送")
+    private boolean skipSend;
     private String content = "";
     private List<com.csg.ecard.messagecenter.module.template.rule.RuleRenderResult.Trace> trace = Collections.emptyList();
     private List<String> errors = Collections.emptyList();

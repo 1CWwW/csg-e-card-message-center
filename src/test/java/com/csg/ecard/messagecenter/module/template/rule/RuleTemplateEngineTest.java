@@ -32,6 +32,45 @@ class RuleTemplateEngineTest {
         assertThat(result.matchedId()).isEqualTo("default");
         assertThat(result.trace()).extracting(RuleRenderResult.Trace::state).containsExactly("unmatched", "unmatched", "matched");
     }
+    @Test void skipFallbackAllowsEmptyContentAndHistoricalFallbackStillSends() throws Exception {
+        ObjectNode d = draft();
+        first(d).set("condition", group("all",
+                condition("skip-condition", "param", "1", "NUMBER", "eq", "1")));
+        ObjectNode fallback = (ObjectNode) d.path("fallback");
+        fallback.put("action", "SKIP");
+        fallback.remove("content");
+
+        RuleRenderResult skipped = run(d, "{\"p1\":0}");
+        assertThat(skipped.skipSend()).isTrue();
+        assertThat(skipped.content()).isEmpty();
+        assertThat(skipped.matchedId()).isEqualTo("default");
+        assertThat(skipped.trace().get(skipped.trace().size() - 1).reasons())
+                .containsExactly(RuleTemplateEngine.SKIP_SEND_MESSAGE);
+
+        RuleRenderResult matched = run(d, "{\"p1\":1}");
+        assertThat(matched.skipSend()).isFalse();
+        assertThat(matched.content()).isEqualTo("selected");
+
+        fallback.remove("action");
+        fallback.set("content", content("historical fallback"));
+        RuleRenderResult historical = run(d, "{\"p1\":0}");
+        assertThat(historical.skipSend()).isFalse();
+        assertThat(historical.content()).isEqualTo("historical fallback");
+    }
+    @Test void fallbackActionIsValidatedAndSendDefaultIsNormalized() {
+        ObjectNode rule = draft();
+        ObjectNode workspaceRule = rule.deepCopy();
+        ((ObjectNode) workspaceRule.path("fallback")).put("action", "SEND");
+        ObjectNode workspace = MAPPER.createObjectNode();
+        workspace.set("ruleTemplate", workspaceRule);
+        JsonNode envelope = engine.envelope(rule, workspace, "10", 1L, params());
+        assertThat(envelope.path("ruleTemplate").path("fallback").path("action").asText())
+                .isEqualTo("SEND");
+
+        ((ObjectNode) rule.path("fallback")).put("action", "UNKNOWN");
+        assertThatThrownBy(() -> engine.validate(rule, 1L, params()))
+                .hasMessageContaining("fallback.action").hasMessageContaining("SEND或SKIP");
+    }
     @Test void allAnyReferenceAndFalseAreHandled() throws Exception {
         ObjectNode d = draft();
         ObjectNode c = condition("c1", "param", "1", "NUMBER", "eq", "");

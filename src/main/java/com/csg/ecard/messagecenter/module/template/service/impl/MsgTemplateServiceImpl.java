@@ -379,10 +379,14 @@ public class MsgTemplateServiceImpl implements MsgTemplateService {
             vo.setChannelType(channelType);
             vo.setMatchedId(result.matchedId());
             vo.setMatchedName(result.matchedName());
+            vo.setSkipSend(result.skipSend());
             vo.setContent(result.content());
             vo.setRenderedContent(result.content());
             vo.setTrace(result.trace());
             vo.setErrors(result.errors());
+            if (result.skipSend()) {
+                vo.setWarnings(List.of(RuleTemplateEngine.SKIP_SEND_MESSAGE));
+            }
             return vo;
         }
         if (request.getRuleTemplate() != null || (request.getWorkspace() != null && request.getWorkspace().has("ruleTemplate")) || (request.getEditorType() != null && !"BLOCKLY".equals(request.getEditorType()))) {

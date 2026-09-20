@@ -65,6 +65,8 @@ class RuleTemplateSaveTest {
                 .set("content", content("{{amount}}", amount));
         ((ObjectNode) rule.path("versions").get(0).path("condition").path("rules").get(0))
                 .put("negate", true);
+        ((ObjectNode) rule.path("fallback")).put("action", "SKIP");
+        ((ObjectNode) rule.path("fallback")).set("content", content(""));
         ObjectNode workspace = MAPPER.createObjectNode();
         workspace.set("ruleTemplate", rule.deepCopy());
         workspace.putObject("blocks").put("languageVersion", 0).putArray("blocks");
@@ -81,6 +83,8 @@ class RuleTemplateSaveTest {
         assertThat(result.getValid()).isTrue();
         assertThat(result.getBlocklyJson().path("editorType").asText()).isEqualTo("RULE_VERSIONS");
         assertThat(result.getBlocklyJson().path("ruleTemplate")).isEqualTo(rule);
+        assertThat(result.getBlocklyJson().path("ruleTemplate").path("fallback").path("action").asText())
+                .isEqualTo("SKIP");
         assertThat(result.getBlocklyJson().path("workspace")).isEqualTo(workspace);
         assertThat(state.get().getStatus()).isZero();
         verify(templates).updateById(any(MsgTemplate.class));
